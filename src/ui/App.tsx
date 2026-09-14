@@ -1,9 +1,11 @@
 import React from 'react';
 import { createMockInvestmentService } from './investmentService.js';
+import { InvestmentForm } from './InvestmentForm.js';
 
 export function App(): React.ReactElement {
   const [message, setMessage] = React.useState('Investment Analysis App - Initializing...');
   const [serviceReady, setServiceReady] = React.useState(false);
+  const [showForm, setShowForm] = React.useState(false);
 
   React.useEffect(() => {
     try {
@@ -21,6 +23,10 @@ export function App(): React.ReactElement {
       <h1>Investment Analysis App</h1>
       <p style={{ color: serviceReady ? 'green' : 'orange' }}>{message}</p>
       <hr />
+      <button onClick={() => setShowForm(!showForm)}>
+        {showForm ? 'Hide Form' : 'Show Investment Form'}
+      </button>
+      {showForm && <InvestmentForm service={createMockInvestmentService()} mode="create" />}
       <p>Task 2.2A: React foundation and investment service layer complete.</p>
       <ul>
         <li>React 18 + Vite + TypeScript configured</li>
