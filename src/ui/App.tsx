@@ -1,5 +1,5 @@
 import React from 'react';
-import { createInvestmentService } from './investmentService.js';
+import { createMockInvestmentService } from './investmentService.js';
 
 export function App(): React.ReactElement {
   const [message, setMessage] = React.useState('Investment Analysis App - Initializing...');
@@ -7,7 +7,7 @@ export function App(): React.ReactElement {
 
   React.useEffect(() => {
     try {
-      const service = createInvestmentService({ path: ':memory:' });
+      const service = createMockInvestmentService();
       service.close();
       setMessage('Investment Analysis App - React + Vite + TypeScript foundation ready');
       setServiceReady(true);
@@ -24,7 +24,8 @@ export function App(): React.ReactElement {
       <p>Task 2.2A: React foundation and investment service layer complete.</p>
       <ul>
         <li>React 18 + Vite + TypeScript configured</li>
-        <li>Investment service bridges UI to SQLite repository</li>
+        <li>Browser-safe mock investment service (no SQLite dependency)</li>
+        <li>SQLite service available for Node/backend via createSqliteInvestmentService</li>
         <li>Decimal precision and UTC dates preserved</li>
       </ul>
     </div>
