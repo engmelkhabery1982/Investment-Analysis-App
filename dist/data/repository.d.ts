@@ -14,6 +14,9 @@ export declare class DataRepository {
     getInvestment(id: string): Investment | null;
     getAllInvestments(): Investment[];
     deleteInvestment(id: string): boolean;
+    getInvestmentWithCashFlows(id: string): Investment | null;
+    saveInvestmentWithCashFlows(investment: Investment, cashFlows: CashFlow[]): Investment;
+    deleteCashFlows(investmentId: string): number;
     saveCashFlows(investmentId: string, flows: CashFlow[]): void;
     getCashFlows(investmentId: string): CashFlow[];
     saveGoldPrice(price: GoldPrice): GoldPriceRecord;

@@ -8,6 +8,14 @@ exports.createRepository = createRepository;
 const better_sqlite3_1 = __importDefault(require("better-sqlite3"));
 const decimal_js_1 = require("decimal.js");
 const common_js_1 = require("../domain/common.js");
+function parseUTCDate(dateStr) {
+    // Parse YYYY-MM-DD as UTC midnight
+    const parts = dateStr.split('-');
+    const year = Number(parts[0]);
+    const month = Number(parts[1]);
+    const day = Number(parts[2]);
+    return new Date(Date.UTC(year, month - 1, day));
+}
 class DataRepository {
     db;
     constructor(config) {
@@ -94,7 +102,7 @@ class DataRepository {
         return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     }
     decimalToString(d) {
-        return d.toFixed(10);
+        return d.toString();
     }
     stringToDecimal(s) {
         return new decimal_js_1.Decimal(s);
@@ -120,8 +128,8 @@ class DataRepository {
             assetClass: row.asset_class,
             currency: row.currency,
             cashFlows: [],
-            purchaseDate: row.purchase_date ? new Date(row.purchase_date) : undefined,
-            valuationDate: new Date(row.valuation_date),
+            purchaseDate: row.purchase_date ? parseUTCDate(row.purchase_date) : undefined,
+            valuationDate: parseUTCDate(row.valuation_date),
             metadata: JSON.parse(row.metadata || '{}'),
         };
     }
@@ -134,8 +142,8 @@ class DataRepository {
             assetClass: row.asset_class,
             currency: row.currency,
             cashFlows: [],
-            purchaseDate: row.purchase_date ? new Date(row.purchase_date) : undefined,
-            valuationDate: new Date(row.valuation_date),
+            purchaseDate: row.purchase_date ? parseUTCDate(row.purchase_date) : undefined,
+            valuationDate: parseUTCDate(row.valuation_date),
             metadata: JSON.parse(row.metadata || '{}'),
         }));
     }
@@ -143,6 +151,28 @@ class DataRepository {
         const stmt = this.db.prepare('DELETE FROM investments WHERE id = ?');
         const result = stmt.run(id);
         return result.changes > 0;
+    }
+    getInvestmentWithCashFlows(id) {
+        const investment = this.getInvestment(id);
+        if (!investment)
+            return null;
+        const cashFlows = this.getCashFlows(id);
+        return { ...investment, cashFlows };
+    }
+    saveInvestmentWithCashFlows(investment, cashFlows) {
+        const transaction = this.db.transaction((inv, flows) => {
+            this.saveInvestment(inv);
+            if (flows.length > 0) {
+                this.saveCashFlows(inv.id, flows);
+            }
+        });
+        transaction(investment, cashFlows);
+        return investment;
+    }
+    deleteCashFlows(investmentId) {
+        const stmt = this.db.prepare('DELETE FROM cash_flows WHERE investment_id = ?');
+        const result = stmt.run(investmentId);
+        return result.changes;
     }
     // Cash Flow operations
     saveCashFlows(investmentId, flows) {
@@ -167,15 +197,15 @@ class DataRepository {
         const rows = stmt.all(investmentId);
         return rows.map(row => ({
             id: row.id,
-            date: new Date(row.date),
+            date: parseUTCDate(row.date),
             amount: this.stringToDecimal(row.amount),
             currency: row.currency,
             description: row.description,
             metadata: JSON.parse(row.metadata || '{}'),
             installmentNumber: row.installment_number,
             totalInstallments: row.total_installments,
-            dueDate: row.due_date ? new Date(row.due_date) : undefined,
-            paidDate: row.paid_date ? new Date(row.paid_date) : undefined,
+            dueDate: row.due_date ? parseUTCDate(row.due_date) : undefined,
+            paidDate: row.paid_date ? parseUTCDate(row.paid_date) : undefined,
             isPaid: Boolean(row.is_paid),
         }));
     }
@@ -223,7 +253,7 @@ class DataRepository {
         const rows = stmt.all(...params);
         return rows.map(row => ({
             id: row.id,
-            date: new Date(row.date),
+            date: parseUTCDate(row.date),
             bid: this.stringToDecimal(row.bid),
             ask: this.stringToDecimal(row.ask),
             currency: 'EGP',
@@ -240,7 +270,7 @@ class DataRepository {
             return null;
         return {
             id: row.id,
-            date: new Date(row.date),
+            date: parseUTCDate(row.date),
             bid: this.stringToDecimal(row.bid),
             ask: this.stringToDecimal(row.ask),
             currency: 'EGP',
@@ -291,7 +321,7 @@ class DataRepository {
         const rows = stmt.all(...params);
         return rows.map(row => ({
             id: row.id,
-            date: new Date(row.date),
+            date: parseUTCDate(row.date),
             baseCurrency: row.base_currency,
             quoteCurrency: row.quote_currency,
             bid: this.stringToDecimal(row.bid),
@@ -345,7 +375,7 @@ class DataRepository {
         const rows = stmt.all(...params);
         return rows.map(row => ({
             id: row.id,
-            date: new Date(row.date),
+            date: parseUTCDate(row.date),
             index: this.stringToDecimal(row.index_value),
             baseYear: row.base_year,
             country: row.country,
