@@ -9,7 +9,3 @@ export {
   formatDecimalForInput,
   parseDecimalFromInput,
 } from './services/investmentService.js';
-
-export {
-  createSqliteInvestmentService,
-} from './services/sqliteInvestmentService.js';
