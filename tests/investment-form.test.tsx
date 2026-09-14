@@ -3,6 +3,7 @@ import { render, screen, waitFor, cleanup, fireEvent } from '@testing-library/re
 import userEvent from '@testing-library/user-event';
 import { InvestmentForm } from '../src/ui/InvestmentForm.js';
 import { createMockInvestmentService } from '../src/ui/investmentService.js';
+import { App } from '../src/ui/App.js';
 import { Investment } from '../src/domain/index.js';
 
 function makeUtcDate(dateStr: string) {
@@ -215,6 +216,35 @@ describe('InvestmentForm', () => {
         expect(updated.name).toBe('New Name');
         expect(updated.currency).toBe('EUR');
       }, { timeout: 3000 });
+    });
+  });
+
+  describe('App lifecycle', () => {
+    it('should not close the service during initialization', async () => {
+      const closeSpy = vi.fn();
+      const module = await import('../src/ui/investmentService.js');
+      vi.spyOn(module, 'createMockInvestmentService').mockReturnValue({
+        close: closeSpy,
+        createInvestment: vi.fn(),
+        getInvestment: vi.fn(),
+        getAllInvestments: vi.fn(),
+        updateInvestment: vi.fn(),
+        deleteInvestment: vi.fn(),
+        addCashFlow: vi.fn(),
+        updateCashFlow: vi.fn(),
+        deleteCashFlow: vi.fn(),
+        getCashFlows: vi.fn(),
+      } as ReturnType<typeof createMockInvestmentService>);
+
+      const { unmount } = render(<App />);
+
+      expect(closeSpy).not.toHaveBeenCalled();
+
+      unmount();
+
+      expect(closeSpy).toHaveBeenCalledTimes(1);
+
+      vi.restoreAllMocks();
     });
   });
 });

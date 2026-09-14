@@ -10,7 +10,6 @@ export function App(): React.ReactElement {
 
   React.useEffect(() => {
     try {
-      serviceRef.current.close();
       setMessage('Investment Analysis App - React + Vite + TypeScript foundation ready');
       setServiceReady(true);
     } catch (err) {
