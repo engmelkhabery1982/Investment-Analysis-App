@@ -53,15 +53,29 @@ export function calculateCurrencyInvestment(
   valuationDate: Date,
   options: CurrencyCalculationOptions
 ): CurrencyCalculationResult {
+  if (cashFlows.length === 0) {
+    throw new Error('At least one cash flow is required');
+  }
+  
+  // Validate all cash flows use the same currency
+  const firstCurrency = cashFlows[0]!.currency;
+  for (const flow of cashFlows) {
+    if (flow.currency !== firstCurrency) {
+      throw new Error(
+        `Mixed currencies detected: expected ${firstCurrency}, found ${flow.currency} in cash flow ${flow.id}`
+      );
+    }
+  }
+  
   const sortedFlows = [...cashFlows].sort((a, b) => a.date.getTime() - b.date.getTime());
   const sortedRates = [...fxRates].sort((a, b) => a.date.getTime() - b.date.getTime());
   
   const relevantRates = sortedRates.filter(r => 
-    r.baseCurrency === cashFlows[0]?.currency && r.quoteCurrency === options.targetCurrency
+    r.baseCurrency === firstCurrency && r.quoteCurrency === options.targetCurrency
   );
   
   if (relevantRates.length === 0) {
-    throw new Error(`No FX rates found for ${cashFlows[0]?.currency}/${options.targetCurrency}`);
+    throw new Error(`No FX rates found for ${firstCurrency}/${options.targetCurrency}`);
   }
   
   const traces: CurrencyPurchaseTrace[] = [];

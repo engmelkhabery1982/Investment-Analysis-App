@@ -206,7 +206,7 @@ describe('Gold Calculation Engine', () => {
       expect(() => calculateGoldInvestment(flows, prices, valuationDate, {
         dateResolutionPolicy: 'exact',
         goldUnit: 'gram',
-      })).toThrow('cannot be on or after valuation date');
+      })).toThrow('cannot be after valuation date');
     });
     
     it('should record trace with correct bid/ask dates', () => {
@@ -264,6 +264,44 @@ describe('Gold Calculation Engine', () => {
       expect(result.liquidationValue.toDecimalPlaces(1).toNumber()).toBe(174250.8);
     });
     
+    it('should handle multiple installments with different Ask prices and one valuation Bid', () => {
+      // Multiple payments at different Ask prices
+      const payments = [
+        { date: utcDate('2024-01-01'), amount: new Decimal(100000) },  // Ask: 5000
+        { date: utcDate('2024-04-01'), amount: new Decimal(100000) },  // Ask: 5500
+        { date: utcDate('2024-07-01'), amount: new Decimal(100000) },  // Ask: 6000
+      ];
+      
+      const goldAskPrices = new Map<string, Decimal>([
+        ['2024-01-01', new Decimal(5000)],
+        ['2024-04-01', new Decimal(5500)],
+        ['2024-07-01', new Decimal(6000)],
+      ]);
+      
+      // Single valuation Bid price
+      const goldBidPrice = new Decimal(6500);
+      const valuationDate = utcDate('2024-12-01');
+      
+      const result = calculateGoldInvestmentSimple(
+        payments,
+        goldAskPrices,
+        goldBidPrice,
+        valuationDate
+      );
+      
+      // Payment 1: 100000 / 5000 = 20 g
+      // Payment 2: 100000 / 5500 = 18.1818 g
+      // Payment 3: 100000 / 6000 = 16.6667 g
+      // Total gold: 54.8485 g
+      // Liquidation: 54.8485 * 6500 = 356,515.25 EGP
+      // Total invested: 300,000 EGP
+      // Gain: 56,515.25 EGP (18.84%)
+      
+      expect(result.totalGold.toDecimalPlaces(4).toNumber()).toBe(54.8485);
+      expect(result.totalInvested.toNumber()).toBe(300000);
+      expect(result.liquidationValue.toDecimalPlaces(2).toNumber()).toBe(356515.15);
+    });
+
     it('should throw when ask price missing for payment date', () => {
       const payments = [
         { date: utcDate('2024-09-01'), amount: new Decimal(100000) },

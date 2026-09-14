@@ -61,6 +61,20 @@ describe('Inflation Calculation Engine', () => {
       
       expect(adjusted.toNumber()).toBe(120000);
     });
+
+    it('should calculate correct adjusted value for CPI 200 to 250', () => {
+      // Payment = 100,000 EGP
+      // CPI at payment = 200
+      // CPI at valuation = 250
+      // Adjusted = 100000 * 250/200 = 125,000 EGP
+      const historicalAmount = new Decimal(100000);
+      const cpiPayment = new Decimal(200);
+      const cpiValuation = new Decimal(250);
+      
+      const adjusted = adjustForInflation(historicalAmount, cpiPayment, cpiValuation);
+      
+      expect(adjusted.toNumber()).toBe(125000);
+    });
   });
   
   describe('calculateInflationAdjustedInvestment', () => {

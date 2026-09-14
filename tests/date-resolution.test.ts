@@ -66,10 +66,72 @@ describe('Date Resolution Utilities', () => {
       
       expect(result.getTime()).toBe(utcDate('2024-09-20').getTime());
     });
-    
+
+    it('should choose previous date on exact tie-break with nearest policy', () => {
+      // 15th is exactly 5 days from both 10th and 20th - should choose previous (10th)
+      const requested = utcDate('2024-09-15');
+      const result = resolveDate(requested, dates, 'nearest');
+      
+      expect(result.getTime()).toBe(utcDate('2024-09-10').getTime());
+    });
+
+    it('should choose previous date on tie-break when previous comes first in list', () => {
+      // Available dates: 10th and 20th, requested 15th (equidistant)
+      // Should choose 10th (previous) even though 20th appears later in sorted list
+      const availableDates = [utcDate('2024-09-10'), utcDate('2024-09-20')];
+      const requested = utcDate('2024-09-15');
+      const result = resolveDate(requested, availableDates, 'nearest');
+      
+      expect(result.getTime()).toBe(utcDate('2024-09-10').getTime());
+    });
+
     it('should throw with empty available dates', () => {
       expect(() => resolveDate(utcDate('2024-09-15'), [], 'exact'))
         .toThrow('No available dates for resolution');
+    });
+  });
+
+  describe('resolveDate - missing date resolution policies', () => {
+    const availableDates = [
+      utcDate('2024-09-01'),
+      utcDate('2024-09-10'),
+      utcDate('2024-09-20'),
+      utcDate('2024-10-01'),
+    ];
+
+    it('should use previous policy for missing date', () => {
+      const requested = utcDate('2024-09-15');
+      const result = resolveDate(requested, availableDates, 'previous');
+      
+      expect(result.getTime()).toBe(utcDate('2024-09-10').getTime());
+    });
+
+    it('should use nearest policy for missing date (closer to 20th)', () => {
+      const requested = utcDate('2024-09-18');
+      const result = resolveDate(requested, availableDates, 'nearest');
+      
+      expect(result.getTime()).toBe(utcDate('2024-09-20').getTime());
+    });
+
+    it('should use previous policy when date before all available', () => {
+      const requested = utcDate('2024-08-15');
+      
+      expect(() => resolveDate(requested, availableDates, 'previous'))
+        .toThrow('No previous market data date available');
+    });
+
+    it('should use nearest policy when date before all available (chooses earliest)', () => {
+      const requested = utcDate('2024-08-15');
+      const result = resolveDate(requested, availableDates, 'nearest');
+      
+      expect(result.getTime()).toBe(utcDate('2024-09-01').getTime());
+    });
+
+    it('should use nearest policy when date after all available (chooses latest)', () => {
+      const requested = utcDate('2024-11-01');
+      const result = resolveDate(requested, availableDates, 'nearest');
+      
+      expect(result.getTime()).toBe(utcDate('2024-10-01').getTime());
     });
   });
   
@@ -172,14 +234,14 @@ it('should throw when payment after valuation', () => {
       expect(() => validateDateOrder(
         utcDate('2024-12-01'),
         utcDate('2024-09-01')
-      )).toThrow('cannot be on or after valuation date');
+      )).toThrow('cannot be after valuation date');
     });
 
-    it('should throw when payment equals valuation', () => {
+    it('should pass when payment equals valuation', () => {
       expect(() => validateDateOrder(
         utcDate('2024-09-01'),
         utcDate('2024-09-01')
-      )).toThrow('cannot be on or after valuation date');
+      )).not.toThrow();
     });
   });
   

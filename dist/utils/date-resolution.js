@@ -31,12 +31,17 @@ function resolveDate(requestedDate, availableDates, policy) {
             if (available.length === 0) {
                 throw new Error('No available dates for nearest resolution');
             }
+            // Find the closest date with deterministic tie-break: previous wins
             let nearest = available[0];
             let minDiff = Math.abs(available[0].getTime() - requested.getTime());
             for (const date of available) {
                 const diff = Math.abs(date.getTime() - requested.getTime());
                 if (diff < minDiff) {
                     minDiff = diff;
+                    nearest = date;
+                }
+                else if (diff === minDiff && date.getTime() < nearest.getTime()) {
+                    // Tie-break: choose the earlier (previous) date
                     nearest = date;
                 }
             }
@@ -74,8 +79,8 @@ function createDateResolver(dataPoints, dateExtractor, defaultPolicy = 'previous
 function validateDateOrder(paymentDate, valuationDate) {
     const payment = (0, common_js_1.normalizeDate)(paymentDate);
     const valuation = (0, common_js_1.normalizeDate)(valuationDate);
-    if (payment >= valuation) {
-        throw new Error(`Payment date (${payment.toISOString().split('T')[0]}) cannot be on or after valuation date (${valuation.toISOString().split('T')[0]})`);
+    if (payment > valuation) {
+        throw new Error(`Payment date (${payment.toISOString().split('T')[0]}) cannot be after valuation date (${valuation.toISOString().split('T')[0]})`);
     }
 }
 function validatePositiveRate(rate, name) {

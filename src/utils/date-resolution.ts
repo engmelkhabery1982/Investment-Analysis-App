@@ -39,6 +39,8 @@ export function resolveDate<T>(
       if (available.length === 0) {
         throw new Error('No available dates for nearest resolution');
       }
+      
+      // Find the closest date with deterministic tie-break: previous wins
       let nearest = available[0]!;
       let minDiff = Math.abs(available[0]!.getTime() - requested.getTime());
       
@@ -46,6 +48,9 @@ export function resolveDate<T>(
         const diff = Math.abs(date.getTime() - requested.getTime());
         if (diff < minDiff) {
           minDiff = diff;
+          nearest = date;
+        } else if (diff === minDiff && date.getTime() < nearest.getTime()) {
+          // Tie-break: choose the earlier (previous) date
           nearest = date;
         }
       }
@@ -104,9 +109,9 @@ export function validateDateOrder(paymentDate: Date, valuationDate: Date): void 
   const payment = normalizeDate(paymentDate);
   const valuation = normalizeDate(valuationDate);
   
-  if (payment >= valuation) {
+  if (payment > valuation) {
     throw new Error(
-      `Payment date (${payment.toISOString().split('T')[0]}) cannot be on or after valuation date (${valuation.toISOString().split('T')[0]})`
+      `Payment date (${payment.toISOString().split('T')[0]}) cannot be after valuation date (${valuation.toISOString().split('T')[0]})`
     );
   }
 }

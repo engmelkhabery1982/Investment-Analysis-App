@@ -174,6 +174,44 @@ describe('Currency Calculation Engine', () => {
         targetCurrency: 'USD',
       })).toThrow('No FX rates found for EGP/USD');
     });
+
+    it('should throw when cash flows have mixed currencies', () => {
+      const flows: CashFlow[] = [
+        createCashFlow('1', utcDate('2024-09-01'), new Decimal(100000), 'EGP'),
+        createCashFlow('2', utcDate('2024-10-01'), new Decimal(50000), 'USD'), // Different currency
+      ];
+      
+      const rates: FXRate[] = [
+        createTestFXRate('2024-09-01', 49, 50),
+        createTestFXRate('2024-12-01', 52, 53),
+      ];
+      
+      const valuationDate = utcDate('2024-12-01');
+      
+      expect(() => calculateCurrencyInvestment(flows, rates, valuationDate, {
+        dateResolutionPolicy: 'exact',
+        targetCurrency: 'USD',
+      })).toThrow('Mixed currencies detected: expected EGP, found USD in cash flow 2');
+    });
+
+    it('should throw when cash flows have mixed currencies (EUR and EGP)', () => {
+      const flows: CashFlow[] = [
+        createCashFlow('1', utcDate('2024-09-01'), new Decimal(100000), 'EGP'),
+        createCashFlow('2', utcDate('2024-10-01'), new Decimal(50000), 'EUR'),
+      ];
+      
+      const rates: FXRate[] = [
+        createTestFXRate('2024-09-01', 49, 50),
+        createTestFXRate('2024-12-01', 52, 53),
+      ];
+      
+      const valuationDate = utcDate('2024-12-01');
+      
+      expect(() => calculateCurrencyInvestment(flows, rates, valuationDate, {
+        dateResolutionPolicy: 'exact',
+        targetCurrency: 'USD',
+      })).toThrow('Mixed currencies detected: expected EGP, found EUR in cash flow 2');
+    });
   });
   
   describe('convertCurrencyAmount', () => {
