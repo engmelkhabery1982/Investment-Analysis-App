@@ -100,8 +100,8 @@ export function runTests() {
   {
     const r = parseDateField('03/04/2025', 'auto');
     check('Ambiguous date 03/04 flagged', r.ambiguous === true, `got ${JSON.stringify(r)}`);
-    const resolved = parseDateField('03/04/2025', 'mdy');
-    check('Ambiguous date resolved under mdy to Apr 3', resolved.iso === '2025-04-03', `got ${resolved.iso}`);
+    const resolved = parseDateField('03/04/2025', 'dmy');
+    check('Ambiguous date resolved under dmy to Apr 3', resolved.iso === '2025-04-03', `got ${resolved.iso}`);
   }
   // 14. Numeric normalization
   {
