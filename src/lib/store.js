@@ -3,6 +3,8 @@ import { sampleState, emptyState, defaultSettings } from './sampleData';
 const KEY = 'pia.state.v1';
 const listeners = new Set();
 let state = loadState();
+// Persist the initial seed so data survives refresh even before any edit.
+try { if (!localStorage.getItem(KEY)) localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) { /* ignore */ }
 
 function loadState() {
   try {
