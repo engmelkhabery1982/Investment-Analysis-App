@@ -6,6 +6,15 @@ import PageNotFound from './lib/PageNotFound';
 import { AuthProvider, useAuth } from '@/lib/AuthContext';
 import UserNotRegisteredError from '@/components/UserNotRegisteredError';
 import ScrollToTop from './components/ScrollToTop';
+import Layout from '@/components/Layout';
+import Dashboard from '@/pages/Dashboard';
+import Investments from '@/pages/Investments';
+import InvestmentDetails from '@/pages/InvestmentDetails';
+import MarketData from '@/pages/MarketData';
+import Analysis from '@/pages/Analysis';
+import Audit from '@/pages/Audit';
+import Settings from '@/pages/Settings';
+import Tests from '@/pages/Tests';
 // Add page imports here
 
 const AuthenticatedApp = () => {
@@ -34,7 +43,16 @@ const AuthenticatedApp = () => {
   // Render the main app
   return (
     <Routes>
-      {/* Add your page Route elements here */}
+      <Route element={<Layout />}>
+        <Route path="/" element={<Dashboard />} />
+        <Route path="/investments" element={<Investments />} />
+        <Route path="/investments/:id" element={<InvestmentDetails />} />
+        <Route path="/market-data" element={<MarketData />} />
+        <Route path="/analysis" element={<Analysis />} />
+        <Route path="/audit" element={<Audit />} />
+        <Route path="/settings" element={<Settings />} />
+        <Route path="/tests" element={<Tests />} />
+      </Route>
       <Route path="*" element={<PageNotFound />} />
     </Routes>
   );
