@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { useSyncExternalStore } from 'react';
 import { subscribe, getState } from './store';
 import { analyzeInvestment } from './performance';
+import { analyzePortfolio } from './portfolio';
 
 export function useStore() {
   return useSyncExternalStore(subscribe, getState, getState);
@@ -22,6 +23,7 @@ export function useSelectedInvestment() {
   return useMemo(() => s.investments.find(i => i.id === s.settings.selectedInvestmentId) || null, [s.investments, s.settings.selectedInvestmentId]);
 }
 
+// Analysis for one investment, memoized on the whole state + id.
 export function useAnalysis(investmentId) {
   const s = useStore();
   return useMemo(() => {
@@ -34,4 +36,30 @@ export function useAnalysis(investmentId) {
       customBenchmarks: s.customBenchmarks, settings: s.settings,
     });
   }, [s, investmentId]);
+}
+
+// All investments with their centralized analysis — used by Portfolio & Comparison.
+export function useAllAnalyses() {
+  const s = useStore();
+  return useMemo(() => {
+    return s.investments.map(inv => {
+      const transactions = s.cashflows.filter(c => c.investmentId === inv.id);
+      const analysis = analyzeInvestment({
+        investment: inv, transactions,
+        gold: s.gold, fx: s.fx, cpi: s.cpi,
+        customBenchmarks: s.customBenchmarks, settings: s.settings,
+      });
+      return { investment: inv, analysis };
+    });
+  }, [s]);
+}
+
+export function usePortfolio() {
+  const s = useStore();
+  return useMemo(() => analyzePortfolio(s), [s]);
+}
+
+export function useScenarios(investmentId) {
+  const s = useStore();
+  return useMemo(() => (s.scenarios || []).filter(x => x.investmentId === investmentId), [s.scenarios, investmentId]);
 }

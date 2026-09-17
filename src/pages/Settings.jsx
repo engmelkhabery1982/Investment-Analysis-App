@@ -1,12 +1,17 @@
 import { useStore } from '@/lib/hooks';
-import { updateSettings, clearAll, resetToSample, removeDemo } from '@/lib/store';
+import { updateSettings, clearAll, resetToSample, removeDemo, addCustomBenchmark, updateCustomBenchmark, deleteCustomBenchmark } from '@/lib/store';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
+import { Badge } from '@/components/ui/badge';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
+import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/table';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
+import { Plus, Pencil, Trash2 } from 'lucide-react';
+import { COMPOUNDING } from '@/lib/model';
+import CustomBenchmarkForm from '@/components/CustomBenchmarkForm';
 import { useState } from 'react';
 
 const CURRENCIES = ['USD', 'SAR', 'EUR'];
@@ -17,6 +22,8 @@ export default function Settings() {
   const s = useStore();
   const set = updateSettings;
   const [confirm, setConfirm] = useState(null);
+  const [cbOpen, setCbOpen] = useState(false);
+  const [editingCb, setEditingCb] = useState(null);
 
   return (
     <div className="space-y-5 max-w-3xl">
@@ -70,6 +77,55 @@ export default function Settings() {
       </Card>
 
       <Card>
+        <CardHeader><CardTitle className="text-base">Fixed-return benchmark</CardTitle></CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-xs text-muted-foreground">A fixed-return benchmark grows each outflow at this rate to the valuation date. Leave empty to disable it.</p>
+          <Row label="Annual rate">
+            <Input type="number" step="any" value={s.settings.fixedReturnRate ?? ''} onChange={e => set({ fixedReturnRate: e.target.value === '' ? '' : Number(e.target.value) })} className="w-32" placeholder="e.g. 0.12" />
+          </Row>
+          <Row label="Compounding">
+            <Select value={s.settings.fixedReturnCompounding || 'annual'} onValueChange={v => set({ fixedReturnCompounding: v })}>
+              <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
+              <SelectContent>{COMPOUNDING.map(c => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}</SelectContent>
+            </Select>
+          </Row>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-base">Custom benchmarks</CardTitle>
+            <Button variant="outline" size="sm" onClick={() => { setEditingCb(null); setCbOpen(true); }}><Plus className="w-4 h-4 mr-2" />Add benchmark</Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {(s.customBenchmarks || []).length === 0 ? (
+            <div className="text-sm text-muted-foreground">No custom benchmarks. Add a price/index series to compare against your investments.</div>
+          ) : (
+            <div className="border rounded-md overflow-x-auto">
+              <Table>
+                <TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Currency</TableHead><TableHead>Data points</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
+                <TableBody>
+                  {s.customBenchmarks.map(cb => (
+                    <TableRow key={cb.id}>
+                      <TableCell className="font-medium">{cb.name}</TableCell>
+                      <TableCell><Badge variant="outline">{cb.currency}</Badge></TableCell>
+                      <TableCell>{(cb.data || []).length}</TableCell>
+                      <TableCell className="text-right">
+                        <Button variant="ghost" size="icon" onClick={() => { setEditingCb(cb); setCbOpen(true); }}><Pencil className="w-4 h-4" /></Button>
+                        <Button variant="ghost" size="icon" onClick={() => deleteCustomBenchmark(cb.id)}><Trash2 className="w-4 h-4 text-destructive" /></Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
         <CardHeader><CardTitle className="text-base">Data management</CardTitle></CardHeader>
         <CardContent className="space-y-3">
           <div className="flex flex-wrap gap-2">
@@ -100,6 +156,13 @@ export default function Settings() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <CustomBenchmarkForm open={cbOpen} onClose={(payload) => {
+        if (!payload) { setCbOpen(false); setEditingCb(null); return; }
+        if (editingCb) updateCustomBenchmark(editingCb.id, payload);
+        else addCustomBenchmark(payload);
+        setCbOpen(false); setEditingCb(null);
+      }} benchmark={editingCb} />
     </div>
   );
 }

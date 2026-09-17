@@ -9,7 +9,9 @@ import ScrollToTop from './components/ScrollToTop';
 import Layout from '@/components/Layout';
 import Dashboard from '@/pages/Dashboard';
 import Investments from '@/pages/Investments';
-import InvestmentDetails from '@/pages/InvestmentDetails';
+import Workspace from '@/pages/Workspace';
+import Portfolio from '@/pages/Portfolio';
+import Comparison from '@/pages/Comparison';
 import MarketData from '@/pages/MarketData';
 import DataImport from '@/pages/DataImport';
 import Analysis from '@/pages/Analysis';
@@ -47,7 +49,9 @@ const AuthenticatedApp = () => {
       <Route element={<Layout />}>
         <Route path="/" element={<Dashboard />} />
         <Route path="/investments" element={<Investments />} />
-        <Route path="/investments/:id" element={<InvestmentDetails />} />
+        <Route path="/investments/:id" element={<Workspace />} />
+        <Route path="/portfolio" element={<Portfolio />} />
+        <Route path="/comparison" element={<Comparison />} />
         <Route path="/market-data" element={<MarketData />} />
         <Route path="/data-import" element={<DataImport />} />
         <Route path="/analysis" element={<Analysis />} />

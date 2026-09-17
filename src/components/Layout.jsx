@@ -1,10 +1,12 @@
 import { NavLink, Outlet } from 'react-router-dom';
-import { LayoutDashboard, Building2, Database, BarChart3, History, Settings, FlaskConical, Landmark, Upload } from 'lucide-react';
+import { LayoutDashboard, Building2, Database, BarChart3, History, Settings, FlaskConical, Landmark, Upload, PieChart, GitCompare } from 'lucide-react';
 import InvestmentSelector from './InvestmentSelector';
 
 const NAV = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
   { to: '/investments', label: 'Investments', icon: Building2 },
+  { to: '/portfolio', label: 'Portfolio', icon: PieChart },
+  { to: '/comparison', label: 'Comparison', icon: GitCompare },
   { to: '/market-data', label: 'Market Data', icon: Database },
   { to: '/data-import', label: 'Data Import', icon: Upload },
   { to: '/analysis', label: 'Analysis', icon: BarChart3 },

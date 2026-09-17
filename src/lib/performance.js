@@ -9,7 +9,8 @@ import { checkInvestment, rollupStatus } from './governance';
 import { CLOSED_STATUSES } from './model';
 
 // XIRR over signed flows [{date: Date, amount: number}] with a sign change.
-function xirrSigned(signedFlows) {
+// Exported so portfolio aggregation and scenarios reuse the same formula.
+export function computeXIRR(signedFlows) {
   const eligible = [...signedFlows].sort((a, b) => a.date - b.date);
   if (eligible.length < 2) return null;
   const hasPos = eligible.some(f => f.amount > 0);
@@ -44,7 +45,7 @@ function xirrSigned(signedFlows) {
   return (lo + hi) / 2;
 }
 
-function xnpvSigned(signedFlows, rate) {
+export function computeXNPV(signedFlows, rate) {
   const eligible = [...signedFlows].sort((a, b) => a.date - b.date);
   if (!eligible.length) return null;
   const t0 = eligible[0].date;
@@ -84,9 +85,9 @@ export function analyzeInvestment({ investment, transactions, gold, fx, cpi, cus
   // XIRR / XNPV over signed economic cash flows + terminal value.
   const signed = eligible.map(t => ({ date: parseDate(t.date), amount: signedAmount(t) }));
   if (!isClosed && currentValue > 0) signed.push({ date: parseDate(valuationDate), amount: currentValue });
-  const xirrVal = xirrSigned(signed);
+  const xirrVal = computeXIRR(signed);
   const xnpvVal = (settings.xnpvDiscountRate != null && settings.xnpvDiscountRate !== '')
-    ? xnpvSigned(signed, Number(settings.xnpvDiscountRate)) : null;
+    ? computeXNPV(signed, Number(settings.xnpvDiscountRate)) : null;
 
   // Annualized return (CAGR-style from MOIC over holding period).
   let years = null, annualizedReturn = null;

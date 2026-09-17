@@ -1,10 +1,12 @@
 import * as D from './decimal';
-import { resolveDate, goldComparison, fxComparison, cpiComparison, eligibleCashFlows } from './finance';
+import { resolveDate, goldComparison, fxComparison, cpiComparison, eligibleCashFlows, parseDate } from './finance';
 import { parseDelimited, parseClipboard, autoMapColumns, parseDateField, parseNumber, prepareRows, buildRecord, validateImportRow } from './importEngine';
 import { signedAmount, eligibleTransactions, outflows, inflows } from './transactions';
-import { analyzeInvestment } from './performance';
+import { analyzeInvestment, computeXIRR } from './performance';
 import { evaluateBenchmark, benchmarkRegistry } from './benchmarks';
 import { rollupStatus, dateGapStatus } from './governance';
+import { analyzePortfolio } from './portfolio';
+import { applyScenario } from './scenarios';
 
 // Spec test cases. Returns array of { name, passed, detail }.
 export function runTests() {
@@ -310,6 +312,123 @@ export function runTests() {
     const res = analyzeInvestment({ investment: inv, transactions: txs, gold: [], fx: [], cpi: [], customBenchmarks: [], settings: { ...baseSettings, enabledCurrencies: [] } });
     check('Demo investment total outflows = 1,000,000', Math.abs(res.performance.totalOutflows - 1000000) < 1e-6, `got ${res.performance.totalOutflows}`);
     check('Demo investment MOIC = 1.1', Math.abs(res.performance.moic - 1.1) < 1e-6, `got ${res.performance.moic}`);
+  }
+
+  // ---- Product layer tests ----
+  // 36. Portfolio aggregation (single investment)
+  {
+    const state = {
+      investments: [{ id: 'i1', name: 'A', type: 'real_estate', status: 'Active', valuationDate: '2025-01-01', currentValuation: 150000, baseCurrency: 'EGP' }],
+      cashflows: [{ id: 'o', investmentId: 'i1', date: '2024-01-01', amount: 100000, direction: 'outflow', status: 'paid', transactionType: 'Purchase' }],
+      gold: [], fx: [], cpi: [], customBenchmarks: [],
+      settings: baseSettings,
+    };
+    const p = analyzePortfolio(state);
+    check('Portfolio total invested = 100000', Math.abs(p.totals.totalInvestedCapital - 100000) < 1e-6, `got ${p.totals.totalInvestedCapital}`);
+    check('Portfolio economic value = 150000', Math.abs(p.totals.totalEconomicValue - 150000) < 1e-6, `got ${p.totals.totalEconomicValue}`);
+    check('Portfolio gain = 50000', Math.abs(p.totals.totalGain - 50000) < 1e-6, `got ${p.totals.totalGain}`);
+    check('Portfolio ROI = 0.5', Math.abs(p.totals.portfolioROI - 0.5) < 1e-6, `got ${p.totals.portfolioROI}`);
+    check('Portfolio MOIC = 1.5', Math.abs(p.totals.portfolioMOIC - 1.5) < 1e-6, `got ${p.totals.portfolioMOIC}`);
+    check('Portfolio XIRR ~ 0.5', p.totals.portfolioXIRR != null && Math.abs(p.totals.portfolioXIRR - 0.5) < 1e-3, `got ${p.totals.portfolioXIRR}`);
+    check('Portfolio allocation by type real_estate = 100000', Math.abs(p.allocationByType.real_estate - 100000) < 1e-6);
+  }
+  // 37. Portfolio mixed investment types
+  {
+    const state = {
+      investments: [
+        { id: 'i1', name: 'RE', type: 'real_estate', status: 'Active', valuationDate: '2025-01-01', currentValuation: 150000, baseCurrency: 'EGP' },
+        { id: 'i2', name: 'Gold', type: 'gold', status: 'Active', valuationDate: '2025-01-01', currentValuation: 60000, baseCurrency: 'EGP' },
+      ],
+      cashflows: [
+        { id: 'a', investmentId: 'i1', date: '2024-01-01', amount: 100000, direction: 'outflow', status: 'paid', transactionType: 'Purchase' },
+        { id: 'b', investmentId: 'i2', date: '2024-01-01', amount: 50000, direction: 'outflow', status: 'paid', transactionType: 'Purchase' },
+      ],
+      gold: [], fx: [], cpi: [], customBenchmarks: [],
+      settings: baseSettings,
+    };
+    const p = analyzePortfolio(state);
+    check('Mixed: total invested = 150000', Math.abs(p.totals.totalInvestedCapital - 150000) < 1e-6, `got ${p.totals.totalInvestedCapital}`);
+    check('Mixed: total economic value = 210000', Math.abs(p.totals.totalEconomicValue - 210000) < 1e-6, `got ${p.totals.totalEconomicValue}`);
+    check('Mixed: gain = 60000', Math.abs(p.totals.totalGain - 60000) < 1e-6, `got ${p.totals.totalGain}`);
+    check('Mixed: ROI = 0.4', Math.abs(p.totals.portfolioROI - 0.4) < 1e-6, `got ${p.totals.portfolioROI}`);
+    check('Mixed: MOIC = 1.4', Math.abs(p.totals.portfolioMOIC - 1.4) < 1e-6, `got ${p.totals.portfolioMOIC}`);
+    check('Mixed: allocation real_estate = 100000', Math.abs(p.allocationByType.real_estate - 100000) < 1e-6);
+    check('Mixed: allocation gold = 50000', Math.abs(p.allocationByType.gold - 50000) < 1e-6);
+    check('Mixed: allocation by status Active = 150000', Math.abs(p.allocationByStatus.Active - 150000) < 1e-6);
+  }
+  // 38. Comparison consistency — portfolio item analysis equals a direct analyzeInvestment call
+  {
+    const state = {
+      investments: [{ id: 'i1', name: 'A', type: 'stock', status: 'Active', valuationDate: '2025-01-01', currentValuation: 120000, baseCurrency: 'EGP' }],
+      cashflows: [{ id: 'o', investmentId: 'i1', date: '2024-01-01', amount: 100000, direction: 'outflow', status: 'paid', transactionType: 'Purchase' }],
+      gold: [], fx: [], cpi: [], customBenchmarks: [], settings: baseSettings,
+    };
+    const p = analyzePortfolio(state);
+    const direct = analyzeInvestment({ investment: state.investments[0], transactions: state.cashflows, gold: [], fx: [], cpi: [], customBenchmarks: [], settings: baseSettings });
+    check('Comparison consistency: item equals direct analysis', p.items[0].analysis.performance.netInvestedCapital === direct.performance.netInvestedCapital && p.items[0].analysis.performance.moic === direct.performance.moic);
+  }
+  // 39. Scenario isolation — never mutates original data
+  {
+    const investment = { id: 'i1', name: 'A', type: 'real_estate', status: 'Active', valuationDate: '2025-01-01', currentValuation: 150000, baseCurrency: 'EGP' };
+    const transactions = [{ id: 'o', investmentId: 'i1', date: '2024-01-01', amount: 100000, direction: 'outflow', status: 'paid', transactionType: 'Purchase' }];
+    const ctx = { investment, transactions, gold: [], fx: [], cpi: [], customBenchmarks: [], settings: baseSettings };
+    const before = JSON.stringify({ investment, transactions });
+    const { analysis } = applyScenario(ctx, { currentValuation: 200000, fixedReturnRate: 0.15, exitFees: 5000 });
+    const after = JSON.stringify({ investment, transactions });
+    check('Scenario does not mutate original data', before === after);
+    check('Scenario applies alternative value minus fees (200000-5000=195000)', Math.abs(analysis.performance.totalEconomicValue - 195000) < 1e-6, `got ${analysis.performance.totalEconomicValue}`);
+    check('Scenario base analysis unchanged (150000)', Math.abs(analyzeInvestment(ctx).performance.totalEconomicValue - 150000) < 1e-6);
+  }
+  // 40. Scenario unsafe valuation date is rejected (not applied)
+  {
+    const investment = { id: 'i1', valuationDate: '2025-01-01', currentValuation: 150000, status: 'Active', type: 'real_estate', baseCurrency: 'EGP' };
+    const transactions = [{ id: 'o', investmentId: 'i1', date: '2024-06-01', amount: 100000, direction: 'outflow', status: 'paid', transactionType: 'Purchase' }];
+    const ctx = { investment, transactions, gold: [], fx: [], cpi: [], customBenchmarks: [], settings: baseSettings };
+    const { analysis, warnings } = applyScenario(ctx, { valuationDate: '2024-05-01' });
+    check('Unsafe scenario valuation date keeps original (1 eligible)', analysis.eligible.length === 1, `got ${analysis.eligible.length}`);
+    check('Unsafe scenario valuation date warns', warnings.length > 0 && /not applied/.test(warnings[0]), `got ${JSON.stringify(warnings)}`);
+  }
+  // 41. Unavailable metrics shown as N/A (no sign change, no terminal)
+  {
+    const inv = { valuationDate: '2025-01-01', currentValuation: 0, status: 'Active', type: 'real_estate', baseCurrency: 'EGP' };
+    const txs = [{ id: 'o', date: '2024-01-01', amount: 1000, direction: 'outflow', status: 'paid', transactionType: 'Purchase' }];
+    const res = analyzeInvestment({ investment: inv, transactions: txs, gold: [], fx: [], cpi: [], customBenchmarks: [], settings: baseSettings });
+    check('XIRR null when no sign change / no terminal', res.performance.xirrVal == null, `got ${res.performance.xirrVal}`);
+    check('MOIC = 0 when economic value is 0', Math.abs(res.performance.moic - 0) < 1e-6, `got ${res.performance.moic}`);
+    check('Real return N/A when no CPI (realInvestedCapital=0)', res.performance.realInvestedCapital === 0, `got ${res.performance.realInvestedCapital}`);
+  }
+  // 42. Benchmark settings — fixed-return rate & compounding
+  {
+    const flows = [{ id: 'o', date: '2024-01-01', amount: 100000, status: 'paid' }];
+    const st = { gold: [], fx: [], cpi: [], customBenchmarks: [] };
+    const r1 = evaluateBenchmark({ id: 'fixed', label: 'Fixed', type: 'fixed', subtype: 'fixed', rate: 0.12, compounding: 'annual' }, flows, st, '2025-01-01', 'exact');
+    const r2 = evaluateBenchmark({ id: 'fixed', label: 'Fixed', type: 'fixed', subtype: 'fixed', rate: 0.20, compounding: 'annual' }, flows, st, '2025-01-01', 'exact');
+    const rM = evaluateBenchmark({ id: 'fixed', label: 'Fixed', type: 'fixed', subtype: 'fixed', rate: 0.12, compounding: 'monthly' }, flows, st, '2025-01-01', 'exact');
+    check('Fixed 12% annual -> 112000', Math.abs(r1.value - 112000) < 1e-4, `got ${r1.value}`);
+    check('Fixed 20% annual -> 120000', Math.abs(r2.value - 120000) < 1e-4, `got ${r2.value}`);
+    check('Fixed 12% monthly -> ~112682.5', Math.abs(rM.value - 100000 * Math.pow(1.01, 12)) < 1e-2, `got ${rM.value}`);
+  }
+  // 43. Dashboard / PerformanceGrid consistency — engine exposes all grid fields
+  {
+    const inv = { valuationDate: '2025-01-01', currentValuation: 150000, status: 'Active', type: 'real_estate', baseCurrency: 'EGP' };
+    const txs = [{ id: 'o', date: '2024-01-01', amount: 100000, direction: 'outflow', status: 'paid', transactionType: 'Purchase' }];
+    const res = analyzeInvestment({ investment: inv, transactions: txs, gold: [], fx: [], cpi: [], customBenchmarks: [], settings: baseSettings });
+    const fields = ['netInvestedCapital', 'totalEconomicValue', 'gain', 'simpleROI', 'moic', 'xirrVal', 'annualizedReturn', 'realReturn', 'realInvestedCapital'];
+    check('Performance engine exposes all grid fields', fields.every(f => typeof res.performance[f] !== 'undefined'), `missing ${fields.filter(f => typeof res.performance[f] === 'undefined')}`);
+  }
+  // 44. computeXIRR exported and reusable
+  {
+    const r = computeXIRR([{ date: parseDate('2024-01-01'), amount: -100 }, { date: parseDate('2025-01-01'), amount: 150 }]);
+    check('computeXIRR ~ 0.5', r != null && Math.abs(r - 0.5) < 1e-3, `got ${r}`);
+  }
+  // 45. Backward compatibility — legacy investment (no type/status) and legacy cashflow (no direction)
+  {
+    const inv = { valuationDate: '2025-01-01', currentValuation: 150000, baseCurrency: 'EGP' };
+    const txs = [{ id: 'o', investmentId: 'i1', date: '2024-01-01', amount: 100000, paymentType: 'Installment', status: 'paid' }];
+    const res = analyzeInvestment({ investment: inv, transactions: txs, gold: [], fx: [], cpi: [], customBenchmarks: [], settings: baseSettings });
+    check('Legacy investment (no type/status) still analyzes', res.performance != null && Math.abs(res.performance.moic - 1.5) < 1e-6, `got ${res.performance.moic}`);
+    check('Legacy investment defaults to Active (not closed)', res.isClosed === false);
+    check('Legacy cashflow (no direction) treated as outflow', res.performance.totalOutflows === 100000, `got ${res.performance.totalOutflows}`);
   }
 
   return results;
