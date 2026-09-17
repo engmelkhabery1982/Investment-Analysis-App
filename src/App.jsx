@@ -11,6 +11,7 @@ import Dashboard from '@/pages/Dashboard';
 import Investments from '@/pages/Investments';
 import InvestmentDetails from '@/pages/InvestmentDetails';
 import MarketData from '@/pages/MarketData';
+import DataImport from '@/pages/DataImport';
 import Analysis from '@/pages/Analysis';
 import Audit from '@/pages/Audit';
 import Settings from '@/pages/Settings';
@@ -48,6 +49,7 @@ const AuthenticatedApp = () => {
         <Route path="/investments" element={<Investments />} />
         <Route path="/investments/:id" element={<InvestmentDetails />} />
         <Route path="/market-data" element={<MarketData />} />
+        <Route path="/data-import" element={<DataImport />} />
         <Route path="/analysis" element={<Analysis />} />
         <Route path="/audit" element={<Audit />} />
         <Route path="/settings" element={<Settings />} />

@@ -13,7 +13,7 @@ import { fmtNumber, fmtDate } from '@/lib/format';
 import GoldForm from '@/components/GoldForm';
 import FxForm from '@/components/FxForm';
 import CpiForm from '@/components/CpiForm';
-import ImportDialog from '@/components/ImportDialog';
+import { Link } from 'react-router-dom';
 
 export default function MarketData() {
   const s = useStore();
@@ -41,7 +41,6 @@ function GoldPanel() {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [toDelete, setToDelete] = useState(null);
-  const [importOpen, setImportOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [karatFilter, setKaratFilter] = useState('all');
 
@@ -59,7 +58,7 @@ function GoldPanel() {
     <div className="space-y-4">
       <div className="flex flex-wrap gap-2">
         <Button onClick={() => { setEditing(null); setOpen(true); }}><Plus className="w-4 h-4 mr-2" />Add gold price</Button>
-        <Button variant="outline" onClick={() => setImportOpen(true)}><Upload className="w-4 h-4 mr-2" />Import CSV</Button>
+        <Button variant="outline" asChild><Link to="/data-import?type=gold"><Upload className="w-4 h-4 mr-2" />Import</Link></Button>
         <Button variant="outline" onClick={exportCsv}><Download className="w-4 h-4 mr-2" />Export CSV</Button>
         <div className="ml-auto flex gap-2">
           <select className="border rounded-md text-sm px-2 bg-background" value={karatFilter} onChange={e => setKaratFilter(e.target.value)}>
@@ -92,7 +91,6 @@ function GoldPanel() {
         ))}
       </DataTable>
       <GoldForm open={open} onClose={() => setOpen(false)} record={editing} />
-      <ImportDialog open={importOpen} onClose={() => setImportOpen(false)} type="gold" />
       <DeleteDialog toDelete={toDelete} setToDelete={setToDelete} onDelete={() => { deleteGold(toDelete.id); setToDelete(null); }} label="gold price" />
     </div>
   );
@@ -103,7 +101,6 @@ function FxPanel() {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [toDelete, setToDelete] = useState(null);
-  const [importOpen, setImportOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [pairFilter, setPairFilter] = useState('all');
 
@@ -123,7 +120,7 @@ function FxPanel() {
     <div className="space-y-4">
       <div className="flex flex-wrap gap-2">
         <Button onClick={() => { setEditing(null); setOpen(true); }}><Plus className="w-4 h-4 mr-2" />Add FX rate</Button>
-        <Button variant="outline" onClick={() => setImportOpen(true)}><Upload className="w-4 h-4 mr-2" />Import CSV</Button>
+        <Button variant="outline" asChild><Link to="/data-import?type=fx"><Upload className="w-4 h-4 mr-2" />Import</Link></Button>
         <Button variant="outline" onClick={exportCsv}><Download className="w-4 h-4 mr-2" />Export CSV</Button>
         <div className="ml-auto flex gap-2">
           <select className="border rounded-md text-sm px-2 bg-background" value={pairFilter} onChange={e => setPairFilter(e.target.value)}>
@@ -155,7 +152,6 @@ function FxPanel() {
         ))}
       </DataTable>
       <FxForm open={open} onClose={() => setOpen(false)} record={editing} />
-      <ImportDialog open={importOpen} onClose={() => setImportOpen(false)} type="fx" />
       <DeleteDialog toDelete={toDelete} setToDelete={setToDelete} onDelete={() => { deleteFx(toDelete.id); setToDelete(null); }} label="FX rate" />
     </div>
   );
@@ -166,7 +162,6 @@ function CpiPanel() {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [toDelete, setToDelete] = useState(null);
-  const [importOpen, setImportOpen] = useState(false);
   const [search, setSearch] = useState('');
 
   const rows = useMemo(() => s.cpi
@@ -182,7 +177,7 @@ function CpiPanel() {
     <div className="space-y-4">
       <div className="flex flex-wrap gap-2">
         <Button onClick={() => { setEditing(null); setOpen(true); }}><Plus className="w-4 h-4 mr-2" />Add CPI record</Button>
-        <Button variant="outline" onClick={() => setImportOpen(true)}><Upload className="w-4 h-4 mr-2" />Import CSV</Button>
+        <Button variant="outline" asChild><Link to="/data-import?type=cpi"><Upload className="w-4 h-4 mr-2" />Import</Link></Button>
         <Button variant="outline" onClick={exportCsv}><Download className="w-4 h-4 mr-2" />Export CSV</Button>
         <div className="ml-auto relative">
           <Search className="w-4 h-4 absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
@@ -207,7 +202,6 @@ function CpiPanel() {
         ))}
       </DataTable>
       <CpiForm open={open} onClose={() => setOpen(false)} record={editing} />
-      <ImportDialog open={importOpen} onClose={() => setImportOpen(false)} type="cpi" />
       <DeleteDialog toDelete={toDelete} setToDelete={setToDelete} onDelete={() => { deleteCpi(toDelete.id); setToDelete(null); }} label="CPI record" />
     </div>
   );

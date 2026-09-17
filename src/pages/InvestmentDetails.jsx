@@ -15,7 +15,6 @@ import * as D from '@/lib/decimal';
 import { downloadCSV } from '@/lib/csv';
 import CashFlowForm from '@/components/CashFlowForm';
 import InvestmentForm from '@/components/InvestmentForm';
-import ImportDialog from '@/components/ImportDialog';
 import AnalysisTable from '@/components/AnalysisTable';
 import DataQualityPanel from '@/components/DataQualityPanel';
 import { eligibleCashFlows } from '@/lib/finance';
@@ -33,7 +32,6 @@ export default function InvestmentDetails() {
   const [cfOpen, setCfOpen] = useState(false);
   const [editingCf, setEditingCf] = useState(null);
   const [toDeleteCf, setToDeleteCf] = useState(null);
-  const [importOpen, setImportOpen] = useState(false);
   const [editInvOpen, setEditInvOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -82,7 +80,7 @@ export default function InvestmentDetails() {
         <TabsContent value="cashflows" className="space-y-4">
           <div className="flex flex-wrap items-center gap-2">
             <Button onClick={() => { setEditingCf(null); setCfOpen(true); }}><Plus className="w-4 h-4 mr-2" />Add payment</Button>
-            <Button variant="outline" onClick={() => setImportOpen(true)}><Upload className="w-4 h-4 mr-2" />Import CSV</Button>
+            <Button variant="outline" asChild><Link to={`/data-import?type=cashflow&investmentId=${id}`}><Upload className="w-4 h-4 mr-2" />Import</Link></Button>
             <Button variant="outline" onClick={exportCsv}><Download className="w-4 h-4 mr-2" />Export CSV</Button>
             <div className="ml-auto flex items-center gap-2">
               <div className="relative">
@@ -169,7 +167,6 @@ export default function InvestmentDetails() {
 
       <CashFlowForm open={cfOpen} onClose={() => setCfOpen(false)} investmentId={id} valuationDate={investment.valuationDate} cashFlow={editingCf} />
       <InvestmentForm open={editInvOpen} onClose={() => setEditInvOpen(false)} investment={investment} />
-      <ImportDialog open={importOpen} onClose={() => setImportOpen(false)} type="cashflow" ctx={{ investmentId: id, valuationDate: investment.valuationDate }} />
 
       <AlertDialog open={!!toDeleteCf} onOpenChange={o => !o && setToDeleteCf(null)}>
         <AlertDialogContent>
