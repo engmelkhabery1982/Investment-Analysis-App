@@ -125,6 +125,37 @@ export function importCpi(records) {
   return items.length;
 }
 
+// ---------- Atomic import plan (Import Center) ----------
+// ops: [{ action: 'insert'|'replace'|'skip', record, existingId }]
+// Performs a single atomic update so a failed import never partially destroys data.
+const COLLECTION = { cashflow: 'cashflows', gold: 'gold', fx: 'fx', cpi: 'cpi' };
+const PREFIX = { cashflow: 'cf', gold: 'g', fx: 'fx', cpi: 'cpi' };
+export function applyImportPlan(type, ops) {
+  const key = COLLECTION[type];
+  const prefix = PREFIX[type];
+  if (!key) return { inserted: 0, replaced: 0, skipped: 0 };
+  let inserted = 0, replaced = 0, skipped = 0;
+  update(s => {
+    let arr = s[key];
+    for (const op of ops) {
+      if (op.action === 'insert') {
+        arr = [...arr, { ...op.record, id: uid(prefix) }];
+        inserted++;
+      } else if (op.action === 'replace' && op.existingId) {
+        arr = arr.map(r => {
+          if (r.id !== op.existingId) return r;
+          replaced++;
+          return { ...op.record, id: op.existingId, createdDate: r.createdDate || new Date().toISOString() };
+        });
+      } else {
+        skipped++;
+      }
+    }
+    return { ...s, [key]: arr };
+  });
+  return { inserted, replaced, skipped };
+}
+
 // ---------- Settings ----------
 export function updateSettings(patch) {
   update(s => ({ ...s, settings: { ...s.settings, ...patch } }));
