@@ -13,13 +13,13 @@ export default function Audit() {
   const [typeFilter, setTypeFilter] = useState('all');
   const [search, setSearch] = useState('');
 
-  if (s.investments.length === 0) return <EmptyState title="No investments" description="Create an investment to view its audit trail." actionLabel="Create investment" actionTo="/investments" />;
-  if (!investment) return <EmptyState title="No investment selected" description="Select an investment from the top selector." actionLabel="Go to investments" actionTo="/investments" />;
-
   const types = useMemo(() => analysis ? [...new Set(analysis.audit.map(a => a.calculationType))] : [], [analysis]);
   const filtered = useMemo(() => (analysis?.audit || [])
     .filter(a => typeFilter === 'all' || a.calculationType === typeFilter)
     .filter(a => !search || (a.formula || '').toLowerCase().includes(search.toLowerCase()) || (a.paymentDate || '').includes(search)), [analysis, typeFilter, search]);
+
+  if (s.investments.length === 0) return <EmptyState title="No investments" description="Create an investment to view its audit trail." actionLabel="Create investment" actionTo="/investments" />;
+  if (!investment) return <EmptyState title="No investment selected" description="Select an investment from the top selector." actionLabel="Go to investments" actionTo="/investments" />;
 
   function exportAudit() {
     if (!analysis) return;

@@ -38,19 +38,19 @@ export default function InvestmentDetails() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
 
-  if (!investment) {
-    return <div className="py-10 text-center">
-      <p className="text-muted-foreground mb-3">Investment not found.</p>
-      <Button asChild><Link to="/investments">Back to investments</Link></Button>
-    </div>;
-  }
-
   const filtered = useMemo(() => {
     return cashFlows
       .filter(c => statusFilter === 'all' || c.status === statusFilter)
       .filter(c => !search || (c.description || '').toLowerCase().includes(search.toLowerCase()) || (c.notes || '').toLowerCase().includes(search.toLowerCase()))
       .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
   }, [cashFlows, search, statusFilter]);
+
+  if (!investment) {
+    return <div className="py-10 text-center">
+      <p className="text-muted-foreground mb-3">Investment not found.</p>
+      <Button asChild><Link to="/investments">Back to investments</Link></Button>
+    </div>;
+  }
 
   const eligible = eligibleCashFlows(cashFlows, investment.valuationDate);
   const totalPaid = eligible.reduce((acc, c) => D.add(acc, c.amount), 0n);
