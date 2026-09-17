@@ -232,7 +232,7 @@ function DeleteDialog({ toDelete, setToDelete, onDelete, label }) {
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel>Cancel</AlertDialogCancel>
-          <AlertDialogAction onClick={onDelete}>Delete</AlertDialogAction>
+          <Button variant="destructive" onClick={onDelete}>Delete</Button>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>

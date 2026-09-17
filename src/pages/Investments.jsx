@@ -73,7 +73,7 @@ export default function Investments() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={() => { deleteInvestment(toDelete.id); setToDelete(null); }}>Delete</AlertDialogAction>
+            <Button variant="destructive" onClick={() => { deleteInvestment(toDelete.id); setToDelete(null); }}>Delete</Button>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
