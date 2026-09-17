@@ -5,57 +5,86 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
-import { validateCashFlow } from '@/lib/validation';
+import { validateTransaction } from '@/lib/validation';
 import { addCashFlow, updateCashFlow } from '@/lib/store';
+import { DIRECTIONS, transactionTypesFor, CURRENCIES } from '@/lib/model';
 
-const PAYMENT_TYPES = ['Down Payment', 'Installment', 'Maintenance', 'Registration', 'Club/Amenities', 'Parking', 'Additional Payment', 'Refund', 'Other'];
 const STATUSES = [
   { value: 'paid', label: 'Paid' },
   { value: 'future', label: 'Future' },
   { value: 'cancelled', label: 'Cancelled' },
   { value: 'refunded', label: 'Refunded' },
 ];
-const CURRENCIES = ['EGP', 'USD', 'SAR', 'EUR', 'AED', 'GBP'];
 
-const empty = { date: '', amount: '', currency: 'EGP', description: '', installmentNumber: '', paymentType: 'Installment', status: 'paid', notes: '' };
+const empty = {
+  date: '', amount: '', currency: 'EGP', direction: 'outflow',
+  transactionType: 'Installment', description: '', installmentNumber: '',
+  quantity: '', unitPrice: '', fees: '', status: 'paid', notes: '',
+};
 
 export default function CashFlowForm({ open, onClose, investmentId, valuationDate, cashFlow = null }) {
   const [form, setForm] = useState(empty);
   const [errors, setErrors] = useState([]);
 
   useEffect(() => {
-    if (open) { setForm(cashFlow ? { ...empty, ...cashFlow } : empty); setErrors([]); }
+    if (open) {
+      const base = cashFlow ? { ...empty, ...cashFlow } : empty;
+      // migrate legacy records: ensure direction + transactionType
+      base.direction = base.direction || 'outflow';
+      base.transactionType = base.transactionType || base.paymentType || 'Installment';
+      setForm(base);
+      setErrors([]);
+    }
   }, [open, cashFlow]);
 
   function set(k, v) { setForm(f => ({ ...f, [k]: v })); }
 
   function submit() {
-    const errs = validateCashFlow(form, valuationDate);
+    const errs = validateTransaction(form, valuationDate);
     if (errs.length) { setErrors(errs); return; }
-    const payload = { ...form, amount: Number(form.amount), installmentNumber: form.installmentNumber ? Number(form.installmentNumber) : '' };
+    const payload = {
+      ...form,
+      amount: Number(form.amount),
+      installmentNumber: form.installmentNumber ? Number(form.installmentNumber) : '',
+      quantity: form.quantity ? Number(form.quantity) : '',
+      unitPrice: form.unitPrice ? Number(form.unitPrice) : '',
+      fees: form.fees ? Number(form.fees) : '',
+      // keep legacy paymentType in sync for older code paths
+      paymentType: form.transactionType,
+    };
     if (cashFlow) updateCashFlow(cashFlow.id, payload);
     else addCashFlow({ ...payload, investmentId });
     onClose();
   }
 
+  const typeOptions = transactionTypesFor(form.direction);
+
   return (
     <Dialog open={open} onOpenChange={o => !o && onClose()}>
       <DialogContent className="max-w-xl">
-        <DialogHeader><DialogTitle>{cashFlow ? 'Edit payment' : 'Add payment'}</DialogTitle></DialogHeader>
+        <DialogHeader><DialogTitle>{cashFlow ? 'Edit transaction' : 'Add transaction'}</DialogTitle></DialogHeader>
         <div className="grid grid-cols-2 gap-4 py-2">
-          <Field label="Payment date *"><Input type="date" value={form.date} onChange={e => set('date', e.target.value)} /></Field>
+          <Field label="Date *"><Input type="date" value={form.date} onChange={e => set('date', e.target.value)} /></Field>
           <Field label="Amount *"><Input type="number" step="any" value={form.amount} onChange={e => set('amount', e.target.value)} /></Field>
+          <Field label="Direction *">
+            <Select value={form.direction} onValueChange={v => {
+              const newTypes = transactionTypesFor(v);
+              setForm(f => ({ ...f, direction: v, transactionType: newTypes.includes(f.transactionType) ? f.transactionType : newTypes[0] }));
+            }}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>{DIRECTIONS.map(d => <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>)}</SelectContent>
+            </Select>
+          </Field>
+          <Field label="Transaction type">
+            <Select value={form.transactionType} onValueChange={v => set('transactionType', v)}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>{typeOptions.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
+            </Select>
+          </Field>
           <Field label="Currency *">
             <Select value={form.currency} onValueChange={v => set('currency', v)}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>{CURRENCIES.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
-            </Select>
-          </Field>
-          <Field label="Installment number"><Input type="number" value={form.installmentNumber} onChange={e => set('installmentNumber', e.target.value)} /></Field>
-          <Field label="Payment type">
-            <Select value={form.paymentType} onValueChange={v => set('paymentType', v)}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>{PAYMENT_TYPES.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
             </Select>
           </Field>
           <Field label="Status">
@@ -64,6 +93,10 @@ export default function CashFlowForm({ open, onClose, investmentId, valuationDat
               <SelectContent>{STATUSES.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}</SelectContent>
             </Select>
           </Field>
+          <Field label="Quantity (optional)"><Input type="number" step="any" value={form.quantity} onChange={e => set('quantity', e.target.value)} /></Field>
+          <Field label="Unit price (optional)"><Input type="number" step="any" value={form.unitPrice} onChange={e => set('unitPrice', e.target.value)} /></Field>
+          <Field label="Fees (optional)"><Input type="number" step="any" value={form.fees} onChange={e => set('fees', e.target.value)} /></Field>
+          <Field label="Installment # (optional)"><Input type="number" value={form.installmentNumber} onChange={e => set('installmentNumber', e.target.value)} /></Field>
           <Field label="Description" full><Input value={form.description} onChange={e => set('description', e.target.value)} /></Field>
           <Field label="Notes" full><Textarea value={form.notes} onChange={e => set('notes', e.target.value)} rows={2} /></Field>
         </div>
@@ -74,7 +107,7 @@ export default function CashFlowForm({ open, onClose, investmentId, valuationDat
         )}
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button onClick={submit}>{cashFlow ? 'Save' : 'Add payment'}</Button>
+          <Button onClick={submit}>{cashFlow ? 'Save' : 'Add transaction'}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

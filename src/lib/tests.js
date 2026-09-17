@@ -1,6 +1,10 @@
 import * as D from './decimal';
 import { resolveDate, goldComparison, fxComparison, cpiComparison, eligibleCashFlows } from './finance';
 import { parseDelimited, parseClipboard, autoMapColumns, parseDateField, parseNumber, prepareRows, buildRecord, validateImportRow } from './importEngine';
+import { signedAmount, eligibleTransactions, outflows, inflows } from './transactions';
+import { analyzeInvestment } from './performance';
+import { evaluateBenchmark, benchmarkRegistry } from './benchmarks';
+import { rollupStatus, dateGapStatus } from './governance';
 
 // Spec test cases. Returns array of { name, passed, detail }.
 export function runTests() {
@@ -9,6 +13,11 @@ export function runTests() {
   function check(name, cond, detail) {
     results.push({ name, passed: !!cond, detail: detail || '' });
   }
+
+  const baseSettings = {
+    defaultDatePolicy: 'exact', defaultGoldType: '21K', enabledCurrencies: [],
+    xnpvDiscountRate: 0.10, fixedReturnRate: 0.12, fixedReturnCompounding: 'annual',
+  };
 
   // 1. Gold: 100,000 / 4,000 = 25g; 25 * 5,000 = 125,000
   {
@@ -46,8 +55,8 @@ export function runTests() {
   {
     const flows = [
       { id: 'a', date: '2025-01-01', amount: 100, status: 'paid' },
-      { id: 'b', date: '2025-06-01', amount: 100, status: 'paid' }, // == valuation date
-      { id: 'c', date: '2025-07-01', amount: 100, status: 'paid' }, // after
+      { id: 'b', date: '2025-06-01', amount: 100, status: 'paid' },
+      { id: 'c', date: '2025-07-01', amount: 100, status: 'paid' },
     ];
     const elig = eligibleCashFlows(flows, '2025-06-01');
     check('Payment on/after valuation date excluded', elig.length === 1 && elig[0].id === 'a', `got ${elig.length}`);
@@ -151,6 +160,156 @@ export function runTests() {
     const rec = buildRecord('cpi', ['2024-09-01', '-5'], { effectiveDate: 0, cpiValue: 1 }, { dateFormat: 'auto', numberFormat: 'auto', settings: {} });
     const v = validateImportRow('cpi', rec, {});
     check('CPI negative value rejected', v.errors.length > 0, `got ${JSON.stringify(v.errors)}`);
+  }
+
+  // ---- Universal model tests ----
+  // 21. Transaction sign convention
+  {
+    check('Outflow sign negative', signedAmount({ amount: 1000, direction: 'outflow' }) === -1000);
+    check('Inflow sign positive', signedAmount({ amount: 500, direction: 'inflow' }) === 500);
+    check('Missing direction defaults outflow', signedAmount({ amount: 1000 }) === -1000);
+  }
+  // 22. Eligibility + direction split
+  {
+    const txs = [
+      { id: 'a', date: '2024-01-01', amount: 100, direction: 'outflow', status: 'paid', transactionType: 'Purchase' },
+      { id: 'b', date: '2024-02-01', amount: 50, direction: 'inflow', status: 'paid', transactionType: 'Rent' },
+      { id: 'c', date: '2025-12-01', amount: 200, direction: 'outflow', status: 'paid', transactionType: 'Installment' },
+    ];
+    const elig = eligibleTransactions(txs, '2025-01-01');
+    check('Eligible filters by date', elig.length === 2, `got ${elig.length}`);
+    check('Outflows separated', outflows(elig).length === 1, `got ${outflows(elig).length}`);
+    check('Inflows separated', inflows(elig).length === 1, `got ${inflows(elig).length}`);
+  }
+  // 23. MOIC + simple ROI + economic value
+  {
+    const inv = { valuationDate: '2025-01-01', currentValuation: 150000, status: 'Active', type: 'real_estate' };
+    const txs = [{ id: 'o', date: '2024-01-01', amount: 100000, direction: 'outflow', status: 'paid', transactionType: 'Purchase' }];
+    const res = analyzeInvestment({ investment: inv, transactions: txs, gold: [], fx: [], cpi: [], customBenchmarks: [], settings: baseSettings });
+    check('MOIC = 1.5', Math.abs(res.performance.moic - 1.5) < 1e-6, `got ${res.performance.moic}`);
+    check('Simple ROI = 0.5', Math.abs(res.performance.simpleROI - 0.5) < 1e-6, `got ${res.performance.simpleROI}`);
+    check('Net invested capital = 100000', Math.abs(res.performance.netInvestedCapital - 100000) < 1e-6, `got ${res.performance.netInvestedCapital}`);
+    check('Total economic value = 150000', Math.abs(res.performance.totalEconomicValue - 150000) < 1e-6, `got ${res.performance.totalEconomicValue}`);
+  }
+  // 24. XIRR ~ 50% for single outflow + terminal
+  {
+    const inv = { valuationDate: '2025-01-01', currentValuation: 150000, status: 'Active', type: 'real_estate' };
+    const txs = [{ id: 'o', date: '2024-01-01', amount: 100000, direction: 'outflow', status: 'paid', transactionType: 'Purchase' }];
+    const res = analyzeInvestment({ investment: inv, transactions: txs, gold: [], fx: [], cpi: [], customBenchmarks: [], settings: baseSettings });
+    check('XIRR ~ 0.5', res.xirrVal != null && Math.abs(res.xirrVal - 0.5) < 1e-3, `got ${res.xirrVal}`);
+  }
+  // 25. XNPV at 10%
+  {
+    const inv = { valuationDate: '2025-01-01', currentValuation: 150000, status: 'Active', type: 'real_estate' };
+    const txs = [{ id: 'o', date: '2024-01-01', amount: 100000, direction: 'outflow', status: 'paid', transactionType: 'Purchase' }];
+    const res = analyzeInvestment({ investment: inv, transactions: txs, gold: [], fx: [], cpi: [], customBenchmarks: [], settings: baseSettings });
+    const expected = -100000 + 150000 / 1.1;
+    check('XNPV ~ 36363.6', res.xnpvVal != null && Math.abs(res.xnpvVal - expected) < 1e-2, `got ${res.xnpvVal}`);
+  }
+  // 26. Real (inflation-adjusted) return
+  {
+    const inv = { valuationDate: '2025-01-01', currentValuation: 150000, status: 'Active', type: 'real_estate' };
+    const txs = [{ id: 'o', date: '2024-01-01', amount: 100000, direction: 'outflow', status: 'paid', transactionType: 'Purchase' }];
+    const cpi = [{ effectiveDate: '2024-01-01', cpiValue: 200 }, { effectiveDate: '2025-01-01', cpiValue: 250 }];
+    const res = analyzeInvestment({ investment: inv, transactions: txs, gold: [], fx: [], cpi, customBenchmarks: [], settings: baseSettings });
+    check('Real invested capital = 125000', Math.abs(res.performance.realInvestedCapital - 125000) < 1e-4, `got ${res.performance.realInvestedCapital}`);
+    check('Real gain = 25000', Math.abs(res.performance.realGain - 25000) < 1e-4, `got ${res.performance.realGain}`);
+    check('Real return = 0.2', Math.abs(res.performance.realReturn - 0.2) < 1e-4, `got ${res.performance.realReturn}`);
+  }
+  // 27. Fixed-return benchmark future value
+  {
+    const bench = { id: 'fixed', label: 'Fixed', type: 'fixed', subtype: 'fixed', rate: 0.12, compounding: 'annual' };
+    const flows = [{ id: 'o', date: '2024-01-01', amount: 100000, status: 'paid' }];
+    const r = evaluateBenchmark(bench, flows, { gold: [], fx: [], cpi: [], customBenchmarks: [] }, '2025-01-01', 'exact');
+    check('Fixed return FV = 112000', Math.abs(r.value - 112000) < 1e-4, `got ${r.value}`);
+  }
+  // 28. Custom benchmark (market-price series)
+  {
+    const cb = { id: 'cb1', name: 'Index', currency: 'EGP', data: [{ date: '2024-01-01', value: 100 }, { date: '2025-01-01', value: 200 }] };
+    const bench = { id: 'custom:cb1', label: 'Index', type: 'market', subtype: 'custom', benchmarkId: 'cb1', currency: 'EGP' };
+    const flows = [{ id: 'o', date: '2024-01-01', amount: 100000, status: 'paid' }];
+    const r = evaluateBenchmark(bench, flows, { gold: [], fx: [], cpi: [], customBenchmarks: [cb] }, '2025-01-01', 'exact');
+    check('Custom benchmark invested = 100000', Math.abs(r.invested - 100000) < 1e-4, `got ${r.invested}`);
+    check('Custom benchmark value = 200000', Math.abs(r.value - 200000) < 1e-4, `got ${r.value}`);
+  }
+  // 29. Opportunity cost = benchmark value - economic value
+  {
+    const inv = { valuationDate: '2025-01-01', currentValuation: 150000, status: 'Active', type: 'real_estate' };
+    const txs = [{ id: 'o', date: '2024-01-01', amount: 100000, direction: 'outflow', status: 'paid', transactionType: 'Purchase' }];
+    const cb = { id: 'cb1', name: 'Index', currency: 'EGP', data: [{ date: '2024-01-01', value: 100 }, { date: '2025-01-01', value: 200 }] };
+    const res = analyzeInvestment({ investment: inv, transactions: txs, gold: [], fx: [], cpi: [], customBenchmarks: [cb], settings: baseSettings });
+    const opp = res.benchmarks['custom:cb1'].opportunityCost;
+    check('Opportunity cost = 50000', Math.abs(opp - 50000) < 1e-4, `got ${opp}`);
+  }
+  // 30. Closed investment: terminal value forced 0, sale proceeds = economic value, basis not reduced by full sale
+  {
+    const inv = { valuationDate: '2025-01-01', currentValuation: 50000, status: 'Closed/Sold', type: 'real_estate' };
+    const txs = [
+      { id: 'o', date: '2024-01-01', amount: 100000, direction: 'outflow', status: 'paid', transactionType: 'Purchase' },
+      { id: 's', date: '2024-06-01', amount: 180000, direction: 'inflow', status: 'paid', transactionType: 'Full Sale' },
+    ];
+    const res = analyzeInvestment({ investment: inv, transactions: txs, gold: [], fx: [], cpi: [], customBenchmarks: [], settings: baseSettings });
+    check('Closed: current value forced 0', Math.abs(res.performance.currentValue) < 1e-6, `got ${res.performance.currentValue}`);
+    check('Closed: total economic value = 180000', Math.abs(res.performance.totalEconomicValue - 180000) < 1e-6, `got ${res.performance.totalEconomicValue}`);
+    check('Closed: full sale does not reduce basis', Math.abs(res.performance.netInvestedCapital - 100000) < 1e-6, `got ${res.performance.netInvestedCapital}`);
+    check('Closed: MOIC = 1.8', Math.abs(res.performance.moic - 1.8) < 1e-6, `got ${res.performance.moic}`);
+  }
+  // 31. Partial capital return reduces basis; income does not
+  {
+    const inv = { valuationDate: '2025-01-01', currentValuation: 150000, status: 'Active', type: 'real_estate' };
+    const txsP = [
+      { id: 'o', date: '2024-01-01', amount: 100000, direction: 'outflow', status: 'paid', transactionType: 'Purchase' },
+      { id: 'cr', date: '2024-06-01', amount: 20000, direction: 'inflow', status: 'paid', transactionType: 'Capital Return' },
+    ];
+    const resP = analyzeInvestment({ investment: inv, transactions: txsP, gold: [], fx: [], cpi: [], customBenchmarks: [], settings: baseSettings });
+    check('Partial capital return reduces basis to 80000', Math.abs(resP.performance.netInvestedCapital - 80000) < 1e-6, `got ${resP.performance.netInvestedCapital}`);
+    check('Partial: economic value = 170000', Math.abs(resP.performance.totalEconomicValue - 170000) < 1e-6, `got ${resP.performance.totalEconomicValue}`);
+
+    const txsI = [
+      { id: 'o', date: '2024-01-01', amount: 100000, direction: 'outflow', status: 'paid', transactionType: 'Purchase' },
+      { id: 'r', date: '2024-06-01', amount: 20000, direction: 'inflow', status: 'paid', transactionType: 'Rent' },
+    ];
+    const resI = analyzeInvestment({ investment: inv, transactions: txsI, gold: [], fx: [], cpi: [], customBenchmarks: [], settings: baseSettings });
+    check('Rent income does not reduce basis', Math.abs(resI.performance.netInvestedCapital - 100000) < 1e-6, `got ${resI.performance.netInvestedCapital}`);
+    check('Rent counted in inflows', Math.abs(resI.performance.totalInflows - 20000) < 1e-6, `got ${resI.performance.totalInflows}`);
+  }
+  // 32. Governance status rollup + date-gap classification
+  {
+    check('Blocking -> INVALID', rollupStatus([{ severity: 'BLOCKING' }, { severity: 'WARNING' }]) === 'INVALID');
+    check('Error -> INCOMPLETE', rollupStatus([{ severity: 'ERROR' }]) === 'INCOMPLETE');
+    check('Warning -> WARNING', rollupStatus([{ severity: 'WARNING' }]) === 'WARNING');
+    check('No issues -> READY', rollupStatus([]) === 'READY');
+    check('0 days -> Exact', dateGapStatus(0).label === 'Exact');
+    check('2 days -> Good', dateGapStatus(2).label === 'Good');
+    check('5 days -> Warning', dateGapStatus(5).label === 'Warning');
+    check('10 days -> Strong warning', dateGapStatus(10).label === 'Strong warning');
+    check('null gap -> INCOMPLETE', dateGapStatus(null).status === 'INCOMPLETE');
+  }
+  // 33. Benchmark registry includes gold / cpi / fixed
+  {
+    const reg = benchmarkRegistry(baseSettings, { customBenchmarks: [] });
+    check('Registry includes gold', reg.some(b => b.id === 'gold'));
+    check('Registry includes cpi', reg.some(b => b.id === 'cpi'));
+    check('Registry includes fixed', reg.some(b => b.id === 'fixed'));
+  }
+  // 34. Legacy cashflow migration convention
+  {
+    const legacy = { id: 'x', investmentId: 'i1', date: '2024-01-01', amount: 100, paymentType: 'Installment', status: 'paid' };
+    const migrated = { ...legacy, direction: legacy.direction || 'outflow', transactionType: legacy.transactionType || legacy.paymentType || 'Installment' };
+    check('Legacy cashflow gets outflow direction', migrated.direction === 'outflow');
+    check('Legacy cashflow transactionType from paymentType', migrated.transactionType === 'Installment');
+  }
+  // 35. Demo investment still analyzes (backward compat with existing seed)
+  {
+    const inv = { id: 'd1', name: 'Demo Apartment (DEMO DATA)', type: 'real_estate', status: 'Active', valuationDate: '2026-08-01', currentValuation: 1100000, baseCurrency: 'EGP' };
+    const txs = [
+      { id: 'cf-1', investmentId: 'd1', date: '2024-09-01', amount: 500000, direction: 'outflow', transactionType: 'Down Payment', status: 'paid' },
+      { id: 'cf-2', investmentId: 'd1', date: '2025-01-15', amount: 250000, direction: 'outflow', transactionType: 'Installment', status: 'paid' },
+      { id: 'cf-3', investmentId: 'd1', date: '2025-06-01', amount: 250000, direction: 'outflow', transactionType: 'Installment', status: 'paid' },
+    ];
+    const res = analyzeInvestment({ investment: inv, transactions: txs, gold: [], fx: [], cpi: [], customBenchmarks: [], settings: { ...baseSettings, enabledCurrencies: [] } });
+    check('Demo investment total outflows = 1,000,000', Math.abs(res.performance.totalOutflows - 1000000) < 1e-6, `got ${res.performance.totalOutflows}`);
+    check('Demo investment MOIC = 1.1', Math.abs(res.performance.moic - 1.1) < 1e-6, `got ${res.performance.moic}`);
   }
 
   return results;

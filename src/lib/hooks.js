@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { useSyncExternalStore } from 'react';
 import { subscribe, getState } from './store';
-import { analyze } from './finance';
+import { analyzeInvestment } from './performance';
 
 export function useStore() {
   return useSyncExternalStore(subscribe, getState, getState);
@@ -27,7 +27,11 @@ export function useAnalysis(investmentId) {
   return useMemo(() => {
     const investment = s.investments.find(i => i.id === investmentId);
     if (!investment) return null;
-    const cashFlows = s.cashflows.filter(c => c.investmentId === investmentId);
-    return analyze({ investment, cashFlows, gold: s.gold, fx: s.fx, cpi: s.cpi, settings: s.settings });
+    const transactions = s.cashflows.filter(c => c.investmentId === investmentId);
+    return analyzeInvestment({
+      investment, transactions,
+      gold: s.gold, fx: s.fx, cpi: s.cpi,
+      customBenchmarks: s.customBenchmarks, settings: s.settings,
+    });
   }, [s, investmentId]);
 }

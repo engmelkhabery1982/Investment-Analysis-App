@@ -9,6 +9,8 @@ export function defaultSettings() {
     enabledCurrencies: ['USD', 'SAR'],
     displayPrecision: 2,
     xnpvDiscountRate: 0.10,
+    fixedReturnRate: 0.12,
+    fixedReturnCompounding: 'annual',
     selectedInvestmentId: null,
   };
 }
@@ -17,6 +19,9 @@ export function sampleState() {
   const investment = {
     id: 'demo-investment-1',
     name: 'Demo Apartment (DEMO DATA)',
+    type: 'real_estate',
+    status: 'Active',
+    baseCurrency: 'EGP',
     projectName: 'Demo Towers',
     developer: 'Demo Developer',
     description: 'Sample investment for demonstration only. Remove via Settings.',
@@ -36,9 +41,9 @@ export function sampleState() {
   };
 
   const cashflows = [
-    { id: 'cf-1', investmentId: investment.id, date: '2024-09-01', amount: 500000, currency: 'EGP', description: 'Down payment', installmentNumber: 1, paymentType: 'Down Payment', status: 'paid', notes: DEMO_TAG },
-    { id: 'cf-2', investmentId: investment.id, date: '2025-01-15', amount: 250000, currency: 'EGP', description: 'Installment', installmentNumber: 2, paymentType: 'Installment', status: 'paid', notes: DEMO_TAG },
-    { id: 'cf-3', investmentId: investment.id, date: '2025-06-01', amount: 250000, currency: 'EGP', description: 'Installment', installmentNumber: 3, paymentType: 'Installment', status: 'paid', notes: DEMO_TAG },
+    { id: 'cf-1', investmentId: investment.id, date: '2024-09-01', amount: 500000, currency: 'EGP', direction: 'outflow', transactionType: 'Down Payment', description: 'Down payment', installmentNumber: 1, status: 'paid', notes: DEMO_TAG },
+    { id: 'cf-2', investmentId: investment.id, date: '2025-01-15', amount: 250000, currency: 'EGP', direction: 'outflow', transactionType: 'Installment', description: 'Installment', installmentNumber: 2, status: 'paid', notes: DEMO_TAG },
+    { id: 'cf-3', investmentId: investment.id, date: '2025-06-01', amount: 250000, currency: 'EGP', direction: 'outflow', transactionType: 'Installment', description: 'Installment', installmentNumber: 3, status: 'paid', notes: DEMO_TAG },
   ];
 
   const gold = [
@@ -66,12 +71,18 @@ export function sampleState() {
     { id: 'cpi-4', effectiveDate: '2026-08-01', cpiValue: 260, frequency: 'monthly', country: 'Egypt', source: DEMO_TAG, notes: '' },
   ];
 
+  const customBenchmarks = [];
+  const scenarios = [];
+
   const settings = defaultSettings();
   settings.selectedInvestmentId = investment.id;
 
-  return { investments: [investment], cashflows, gold, fx, cpi, settings };
+  return { investments: [investment], cashflows, gold, fx, cpi, customBenchmarks, scenarios, settings };
 }
 
 export function emptyState() {
-  return { investments: [], cashflows: [], gold: [], fx: [], cpi: [], settings: defaultSettings() };
+  return {
+    investments: [], cashflows: [], gold: [], fx: [], cpi: [],
+    customBenchmarks: [], scenarios: [], settings: defaultSettings(),
+  };
 }

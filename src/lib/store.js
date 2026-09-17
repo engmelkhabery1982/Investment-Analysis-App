@@ -17,13 +17,30 @@ function loadState() {
   return sampleState();
 }
 
+function migrateInvestment(i) {
+  return {
+    ...i,
+    type: i.type || 'real_estate',
+    status: i.status || 'Active',
+    baseCurrency: i.baseCurrency || i.purchaseCurrency || 'EGP',
+  };
+}
+function migrateTransaction(t) {
+  return {
+    ...t,
+    direction: t.direction || 'outflow',
+    transactionType: t.transactionType || t.paymentType || 'Installment',
+  };
+}
 function normalize(s) {
   return {
-    investments: s.investments || [],
-    cashflows: s.cashflows || [],
+    investments: (s.investments || []).map(migrateInvestment),
+    cashflows: (s.cashflows || []).map(migrateTransaction),
     gold: s.gold || [],
     fx: s.fx || [],
     cpi: s.cpi || [],
+    customBenchmarks: s.customBenchmarks || [],
+    scenarios: s.scenarios || [],
     settings: { ...defaultSettings(), ...(s.settings || {}) },
   };
 }
@@ -125,6 +142,16 @@ export function importCpi(records) {
   return items.length;
 }
 
+// ---------- Custom Benchmarks ----------
+export function addCustomBenchmark(data) { const item = { ...data, id: uid('cb') }; update(s => ({ ...s, customBenchmarks: [...s.customBenchmarks, item] })); return item; }
+export function updateCustomBenchmark(id, patch) { update(s => ({ ...s, customBenchmarks: s.customBenchmarks.map(b => b.id === id ? { ...b, ...patch } : b) })); }
+export function deleteCustomBenchmark(id) { update(s => ({ ...s, customBenchmarks: s.customBenchmarks.filter(b => b.id !== id) })); }
+
+// ---------- Scenarios ----------
+export function addScenario(data) { const item = { ...data, id: uid('scn') }; update(s => ({ ...s, scenarios: [...s.scenarios, item] })); return item; }
+export function updateScenario(id, patch) { update(s => ({ ...s, scenarios: s.scenarios.map(x => x.id === id ? { ...x, ...patch } : x) })); }
+export function deleteScenario(id) { update(s => ({ ...s, scenarios: s.scenarios.filter(x => x.id !== id) })); }
+
 // ---------- Atomic import plan (Import Center) ----------
 // ops: [{ action: 'insert'|'replace'|'skip', record, existingId }]
 // Performs a single atomic update so a failed import never partially destroys data.
@@ -175,6 +202,8 @@ export function removeDemo() {
     gold: s.gold.filter(g => !/DEMO/i.test(g.source || '') && g.quality !== 'Demo'),
     fx: s.fx.filter(f => !/DEMO/i.test(f.source || '') && f.quality !== 'Demo'),
     cpi: s.cpi.filter(c => !/DEMO/i.test(c.source || '')),
+    customBenchmarks: (s.customBenchmarks || []).filter(b => !/DEMO/i.test(b.source || '')),
+    scenarios: s.scenarios || [],
     settings: { ...s.settings, selectedInvestmentId: null },
   }));
 }
