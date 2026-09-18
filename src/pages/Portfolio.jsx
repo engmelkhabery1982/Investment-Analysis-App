@@ -9,6 +9,7 @@ import EmptyState from '@/components/EmptyState';
 import { fmtMoney, fmtPct, fmtNumber } from '@/lib/format';
 import { typeLabel } from '@/lib/portfolio';
 import { INVESTMENT_TYPES } from '@/lib/model';
+import { AlertTriangle } from 'lucide-react';
 
 export default function Portfolio() {
   const s = useStore();
@@ -30,6 +31,15 @@ export default function Portfolio() {
         <h1 className="text-2xl font-heading tracking-tight">Portfolio</h1>
         <p className="text-sm text-muted-foreground">{t.count} investment{t.count === 1 ? '' : 's'} • aggregated from the centralized performance engine</p>
       </div>
+
+      {portfolio.warnings && portfolio.warnings.length > 0 && (
+        <div className="rounded-md border border-amber-200 bg-amber-50 p-4">
+          <div className="flex items-center gap-2 text-amber-800 font-medium text-sm mb-1"><AlertTriangle className="w-4 h-4" />Portfolio metric notes</div>
+          <ul className="text-xs text-amber-700 space-y-1 list-disc list-inside">
+            {portfolio.warnings.map((w, i) => <li key={i}>{w}</li>)}
+          </ul>
+        </div>
+      )}
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <MetricCard label="Invested capital" value={fmtMoney(t.totalInvestedCapital, 2, cur)} />

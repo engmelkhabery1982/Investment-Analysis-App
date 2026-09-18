@@ -198,15 +198,18 @@ export function runTests() {
     const inv = { valuationDate: '2025-01-01', currentValuation: 150000, status: 'Active', type: 'real_estate' };
     const txs = [{ id: 'o', date: '2024-01-01', amount: 100000, direction: 'outflow', status: 'paid', transactionType: 'Purchase' }];
     const res = analyzeInvestment({ investment: inv, transactions: txs, gold: [], fx: [], cpi: [], customBenchmarks: [], settings: baseSettings });
-    check('XIRR ~ 0.5', res.xirrVal != null && Math.abs(res.xirrVal - 0.5) < 1e-3, `got ${res.xirrVal}`);
+    // actual/365 day count: 2024-01-01 -> 2025-01-01 spans 366 days (leap year),
+    // so XIRR = 1.5^(365/366) - 1 ≈ 0.49834, not exactly 0.5.
+    check('XIRR ~ 0.4983 (actual/365 over 366-day leap span)', res.xirrVal != null && Math.abs(res.xirrVal - 0.498339) < 1e-3, `got ${res.xirrVal}`);
   }
   // 25. XNPV at 10%
   {
     const inv = { valuationDate: '2025-01-01', currentValuation: 150000, status: 'Active', type: 'real_estate' };
     const txs = [{ id: 'o', date: '2024-01-01', amount: 100000, direction: 'outflow', status: 'paid', transactionType: 'Purchase' }];
     const res = analyzeInvestment({ investment: inv, transactions: txs, gold: [], fx: [], cpi: [], customBenchmarks: [], settings: baseSettings });
-    const expected = -100000 + 150000 / 1.1;
-    check('XNPV ~ 36363.6', res.xnpvVal != null && Math.abs(res.xnpvVal - expected) < 1e-2, `got ${res.xnpvVal}`);
+    // actual/365 over 366-day leap span: years = 366/365.
+    const expected = -100000 + 150000 / Math.pow(1.1, 366 / 365);
+    check('XNPV ~ 36328.0 (actual/365)', res.xnpvVal != null && Math.abs(res.xnpvVal - expected) < 1e-2, `got ${res.xnpvVal}`);
   }
   // 26. Real (inflation-adjusted) return
   {
@@ -223,7 +226,8 @@ export function runTests() {
     const bench = { id: 'fixed', label: 'Fixed', type: 'fixed', subtype: 'fixed', rate: 0.12, compounding: 'annual' };
     const flows = [{ id: 'o', date: '2024-01-01', amount: 100000, status: 'paid' }];
     const r = evaluateBenchmark(bench, flows, { gold: [], fx: [], cpi: [], customBenchmarks: [] }, '2025-01-01', 'exact');
-    check('Fixed return FV = 112000', Math.abs(r.value - 112000) < 1e-4, `got ${r.value}`);
+    // annual compounding scaled by actual/365: 100000 * 1.12^(366/365) ≈ 112034.78
+    check('Fixed return FV = 112034.78 (actual/365, 366 days)', Math.abs(r.value - 112034.78) < 1e-2, `got ${r.value}`);
   }
   // 28. Custom benchmark (market-price series)
   {
@@ -329,7 +333,7 @@ export function runTests() {
     check('Portfolio gain = 50000', Math.abs(p.totals.totalGain - 50000) < 1e-6, `got ${p.totals.totalGain}`);
     check('Portfolio ROI = 0.5', Math.abs(p.totals.portfolioROI - 0.5) < 1e-6, `got ${p.totals.portfolioROI}`);
     check('Portfolio MOIC = 1.5', Math.abs(p.totals.portfolioMOIC - 1.5) < 1e-6, `got ${p.totals.portfolioMOIC}`);
-    check('Portfolio XIRR ~ 0.5', p.totals.portfolioXIRR != null && Math.abs(p.totals.portfolioXIRR - 0.5) < 1e-3, `got ${p.totals.portfolioXIRR}`);
+    check('Portfolio XIRR ~ 0.4983 (actual/365 over 366-day leap span)', p.totals.portfolioXIRR != null && Math.abs(p.totals.portfolioXIRR - 0.498339) < 1e-3, `got ${p.totals.portfolioXIRR}`);
     check('Portfolio allocation by type real_estate = 100000', Math.abs(p.allocationByType.real_estate - 100000) < 1e-6);
   }
   // 37. Portfolio mixed investment types
@@ -404,9 +408,10 @@ export function runTests() {
     const r1 = evaluateBenchmark({ id: 'fixed', label: 'Fixed', type: 'fixed', subtype: 'fixed', rate: 0.12, compounding: 'annual' }, flows, st, '2025-01-01', 'exact');
     const r2 = evaluateBenchmark({ id: 'fixed', label: 'Fixed', type: 'fixed', subtype: 'fixed', rate: 0.20, compounding: 'annual' }, flows, st, '2025-01-01', 'exact');
     const rM = evaluateBenchmark({ id: 'fixed', label: 'Fixed', type: 'fixed', subtype: 'fixed', rate: 0.12, compounding: 'monthly' }, flows, st, '2025-01-01', 'exact');
-    check('Fixed 12% annual -> 112000', Math.abs(r1.value - 112000) < 1e-4, `got ${r1.value}`);
-    check('Fixed 20% annual -> 120000', Math.abs(r2.value - 120000) < 1e-4, `got ${r2.value}`);
-    check('Fixed 12% monthly -> ~112682.5', Math.abs(rM.value - 100000 * Math.pow(1.01, 12)) < 1e-2, `got ${rM.value}`);
+    // actual/365 over 366-day leap span
+    check('Fixed 12% annual -> 112034.78', Math.abs(r1.value - 112034.78) < 1e-2, `got ${r1.value}`);
+    check('Fixed 20% annual -> 120059.96', Math.abs(r2.value - 120059.96) < 1e-2, `got ${r2.value}`);
+    check('Fixed 12% monthly -> ~112719.37', Math.abs(rM.value - 100000 * Math.pow(1.01, 12 * 366 / 365)) < 1e-2, `got ${rM.value}`);
   }
   // 43. Dashboard / PerformanceGrid consistency — engine exposes all grid fields
   {
@@ -419,7 +424,7 @@ export function runTests() {
   // 44. computeXIRR exported and reusable
   {
     const r = computeXIRR([{ date: parseDate('2024-01-01'), amount: -100 }, { date: parseDate('2025-01-01'), amount: 150 }]);
-    check('computeXIRR ~ 0.5', r != null && Math.abs(r - 0.5) < 1e-3, `got ${r}`);
+    check('computeXIRR ~ 0.4983 (actual/365 over 366-day leap span)', r != null && Math.abs(r - 0.498339) < 1e-3, `got ${r}`);
   }
   // 45. Backward compatibility — legacy investment (no type/status) and legacy cashflow (no direction)
   {
