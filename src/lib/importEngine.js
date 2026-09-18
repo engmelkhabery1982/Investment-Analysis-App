@@ -1,4 +1,4 @@
-// Professional Data Import engine — pure, portable, no React, no Base44 deps.
+// Professional Data Import engine — pure, portable, no React or platform deps.
 // Handles: delimited parsing (CSV/TSV/paste), XLSX, column auto-mapping,
 // date/number normalization, validation, and duplicate/conflict detection.
 
