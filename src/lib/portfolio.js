@@ -59,16 +59,20 @@ export function analyzePortfolio(state) {
 
   // Portfolio XIRR is a money-weighted return over the combined cash-flow stream
   // where each Active investment's terminal is recognized at its own valuation
-  // date. When those valuation dates differ, the metric is still valid but is NOT
-  // a return "as of" a single common date — surface that explicitly (don't hide it).
-  const activeValuationDates = items
-    .filter(it => !it.analysis.isClosed && (Number(it.investment.currentValuation) || 0) > 0)
-    .map(it => it.investment.valuationDate)
-    .filter(Boolean);
+  // date. We do NOT extrapolate terminals to a common date (would fabricate data).
+  // Instead we expose an explicit reporting/as-of context: the latest valuation
+  // date among active investments, plus whether valuation dates are unified.
+  const activeTerminalItems = items
+    .filter(it => !it.analysis.isClosed && (Number(it.investment.currentValuation) || 0) > 0);
+  const activeValuationDates = activeTerminalItems.map(it => it.investment.valuationDate).filter(Boolean);
   const distinctValuationDates = [...new Set(activeValuationDates)];
+  const reportingAsOf = activeValuationDates.length ? activeValuationDates.slice().sort().slice(-1)[0] : null;
+  const valuationDateMode = distinctValuationDates.length <= 1 ? 'single' : 'multiple';
+  const portfolioXIRRMode = 'combined-dated';
+
   const warnings = [];
   if (distinctValuationDates.length > 1) {
-    warnings.push(`Portfolio XIRR recognizes each active investment's terminal at its own valuation date (${distinctValuationDates.join(', ')}). It is a money-weighted return over the combined cash-flow stream, not a return as of a single common date.`);
+    warnings.push(`Portfolio XIRR recognizes each active investment's terminal at its own valuation date (${distinctValuationDates.join(', ')}). It is a money-weighted return over the combined cash-flow stream, not a return as of a single common date (as-of ${reportingAsOf}).`);
   }
   if (portfolioXIRR == null) {
     warnings.push('Portfolio XIRR is N/A: no sign change across the combined cash-flow stream (only outflows, or only inflows).');
@@ -84,6 +88,7 @@ export function analyzePortfolio(state) {
       portfolioXIRR, portfolioXNPV,
     },
     allocationByType, allocationByStatus,
+    reportingAsOf, valuationDateMode, portfolioXIRRMode, valuationDates: distinctValuationDates,
     warnings,
   };
 }

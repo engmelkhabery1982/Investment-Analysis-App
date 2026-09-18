@@ -1,5 +1,5 @@
 import { NavLink, Outlet } from 'react-router-dom';
-import { LayoutDashboard, Building2, Database, BarChart3, History, Settings, FlaskConical, Landmark, Upload, PieChart, GitCompare } from 'lucide-react';
+import { LayoutDashboard, Building2, Database, BarChart3, History, Settings, FlaskConical, Landmark, Upload, PieChart, GitCompare, ShieldCheck } from 'lucide-react';
 import InvestmentSelector from './InvestmentSelector';
 
 const NAV = [
@@ -11,6 +11,7 @@ const NAV = [
   { to: '/data-import', label: 'Data Import', icon: Upload },
   { to: '/analysis', label: 'Analysis', icon: BarChart3 },
   { to: '/audit', label: 'Audit', icon: History },
+  { to: '/data-quality', label: 'Data Quality', icon: ShieldCheck },
   { to: '/settings', label: 'Settings', icon: Settings },
   { to: '/tests', label: 'Self-test', icon: FlaskConical },
 ];

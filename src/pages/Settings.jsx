@@ -1,5 +1,6 @@
 import { useStore } from '@/lib/hooks';
-import { updateSettings, clearAll, resetToSample, removeDemo, addCustomBenchmark, updateCustomBenchmark, deleteCustomBenchmark } from '@/lib/store';
+import { updateSettings, clearAll, resetToSample, removeDemo, addCustomBenchmark, updateCustomBenchmark, deleteCustomBenchmark, exportBackupString, restoreBackup } from '@/lib/store';
+import { validateBackup } from '@/lib/backup';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -12,7 +13,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Plus, Pencil, Trash2 } from 'lucide-react';
 import { COMPOUNDING } from '@/lib/model';
 import CustomBenchmarkForm from '@/components/CustomBenchmarkForm';
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 
 const CURRENCIES = ['USD', 'SAR', 'EUR'];
 const POLICIES = [{ value: 'previous', label: 'Previous (on or before)' }, { value: 'nearest', label: 'Nearest (tie → previous)' }, { value: 'exact', label: 'Exact only' }];
@@ -24,6 +25,39 @@ export default function Settings() {
   const [confirm, setConfirm] = useState(null);
   const [cbOpen, setCbOpen] = useState(false);
   const [editingCb, setEditingCb] = useState(null);
+  const [restorePreview, setRestorePreview] = useState(null);
+  const [restoreError, setRestoreError] = useState('');
+  const [restoreParsed, setRestoreParsed] = useState(null);
+  const fileRef = useRef(null);
+
+  function exportBackup() {
+    const blob = new Blob([exportBackupString()], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `investment-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+  function onRestoreFile(e) {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    setRestoreError(''); setRestorePreview(null); setRestoreParsed(null);
+    file.text().then(text => {
+      let parsed;
+      try { parsed = JSON.parse(text); } catch (err) { setRestoreError('Backup file is not valid JSON.'); return; }
+      const v = validateBackup(parsed);
+      if (!v.ok) { setRestoreError(v.error); return; }
+      setRestoreParsed(parsed); setRestorePreview(v.preview);
+    }).catch(() => setRestoreError('Could not read the file.'));
+    e.target.value = '';
+  }
+  function confirmRestore() {
+    if (!restoreParsed) return;
+    const res = restoreBackup(restoreParsed);
+    if (!res.ok) { setRestoreError(res.error); return; }
+    setRestorePreview(null); setRestoreParsed(null);
+    setConfirm('restored');
+  }
 
   return (
     <div className="space-y-5 max-w-3xl">
@@ -126,6 +160,40 @@ export default function Settings() {
       </Card>
 
       <Card>
+        <CardHeader><CardTitle className="text-base">Backup & Restore</CardTitle></CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-xs text-muted-foreground">Export a versioned JSON backup of all investments, transactions, market data, custom benchmarks, scenarios and settings. Restore replaces all local data atomically — a failed or corrupt restore leaves your current data untouched.</p>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={exportBackup}>Export full backup</Button>
+            <Button variant="outline" onClick={() => fileRef.current?.click()}>Import / restore backup</Button>
+            <input ref={fileRef} type="file" accept="application/json,.json" className="hidden" onChange={onRestoreFile} />
+          </div>
+          {restoreError && <p className="text-sm text-destructive">{restoreError}</p>}
+          {restorePreview && (
+            <div className="border rounded-md p-3 text-sm space-y-2">
+              <div className="font-medium">Backup preview</div>
+              <div className="text-xs text-muted-foreground">Created: {restorePreview.createdAt || '—'} • Version {restorePreview.version}</div>
+              <ul className="text-xs grid grid-cols-2 gap-x-4 gap-y-0.5">
+                <li>Investments: {restorePreview.investments}</li>
+                <li>Transactions: {restorePreview.cashflows}</li>
+                <li>Gold: {restorePreview.gold}</li>
+                <li>FX: {restorePreview.fx}</li>
+                <li>CPI: {restorePreview.cpi}</li>
+                <li>Custom benchmarks: {restorePreview.customBenchmarks}</li>
+                <li>Scenarios: {restorePreview.scenarios}</li>
+                {restorePreview.orphanTransactions > 0 && <li className="text-amber-600 col-span-2">Orphan transactions (no matching investment): {restorePreview.orphanTransactions}</li>}
+              </ul>
+              <p className="text-xs text-destructive">This will replace ALL current data. This cannot be undone.</p>
+              <div className="flex gap-2">
+                <Button variant="destructive" onClick={confirmRestore}>Replace all data with this backup</Button>
+                <Button variant="ghost" onClick={() => { setRestorePreview(null); setRestoreParsed(null); }}>Cancel</Button>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
         <CardHeader><CardTitle className="text-base">Data management</CardTitle></CardHeader>
         <CardContent className="space-y-3">
           <div className="flex flex-wrap gap-2">
@@ -140,19 +208,19 @@ export default function Settings() {
       <AlertDialog open={!!confirm} onOpenChange={o => !o && setConfirm(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>{confirm === 'clear' ? 'Clear all data?' : confirm === 'sample' ? 'Reset to demo data?' : 'Remove demo data?'}</AlertDialogTitle>
+            <AlertDialogTitle>{confirm === 'clear' ? 'Clear all data?' : confirm === 'sample' ? 'Reset to demo data?' : confirm === 'restored' ? 'Backup restored' : 'Remove demo data?'}</AlertDialogTitle>
             <AlertDialogDescription>
-              {confirm === 'clear' ? 'All investments, payments and market data will be deleted.' : confirm === 'sample' ? 'Your current data will be replaced with the demo dataset.' : 'All records marked DEMO will be removed; your real data stays.'}
+              {confirm === 'clear' ? 'All investments, payments and market data will be deleted.' : confirm === 'sample' ? 'Your current data will be replaced with the demo dataset.' : confirm === 'restored' ? 'Your data has been replaced with the backup contents.' : 'All records marked DEMO will be removed; your real data stays.'}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            {confirm !== 'restored' && <AlertDialogCancel>Cancel</AlertDialogCancel>}
             <AlertDialogAction onClick={() => {
               if (confirm === 'clear') clearAll();
               else if (confirm === 'sample') resetToSample();
               else if (confirm === 'demo') removeDemo();
               setConfirm(null);
-            }}>Confirm</AlertDialogAction>
+            }}>OK</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

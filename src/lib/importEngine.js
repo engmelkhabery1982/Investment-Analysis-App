@@ -3,6 +3,7 @@
 // date/number normalization, validation, and duplicate/conflict detection.
 
 import { parseCSV } from './csv';
+import { INVESTMENT_TYPES, INVESTMENT_STATUSES, DIRECTIONS, TRANSACTION_TYPES } from './model';
 
 // ---------------------------------------------------------------------------
 // Type / field configuration (single source of truth, reused by UI & tests)
@@ -74,9 +75,39 @@ export const IMPORT_TYPES = {
     ],
     defaults: () => ({ frequency: 'monthly', country: 'Egypt' }),
   },
+  investment: {
+    label: 'Investments',
+    description: 'Investment records (name, type, status, currency, valuation). Creates new investments; assign transactions separately.',
+    collectionKey: 'investments',
+    fields: [
+      { key: 'name', label: 'Name', required: true, aliases: ['name', 'investment', 'title', 'investment name'] },
+      { key: 'type', label: 'Type', aliases: ['type', 'investment type', 'investmenttype', 'asset type', 'assettype', 'category'] },
+      { key: 'status', label: 'Status', aliases: ['status', 'state'] },
+      { key: 'baseCurrency', label: 'Base Currency', aliases: ['basecurrency', 'base currency', 'currency', 'ccy'] },
+      { key: 'valuationDate', label: 'Valuation Date', aliases: ['valuationdate', 'valuation date', 'as of date', 'asofdate', 'report date'] },
+      { key: 'currentValuation', label: 'Current / Terminal Value', numeric: true, aliases: ['currentvaluation', 'current valuation', 'current value', 'currentvalue', 'terminal value', 'terminalvalue', 'value', 'market value', 'marketvalue'] },
+      { key: 'contractDate', label: 'Contract Date', aliases: ['contractdate', 'contract date', 'purchase date', 'purchasedate', 'start date', 'startdate'] },
+      { key: 'location', label: 'Location', aliases: ['location', 'address', 'region'] },
+      { key: 'description', label: 'Description', aliases: ['description', 'desc', 'notes', 'note'] },
+    ],
+    defaults: (settings) => ({ type: 'real_estate', status: 'Active', baseCurrency: settings.defaultCurrency || 'EGP' }),
+  },
+  custombenchmark: {
+    label: 'Custom Benchmark Data',
+    description: 'Price / index series for a custom benchmark. Rows are grouped by benchmark name; dates must be unique per benchmark.',
+    collectionKey: 'customBenchmarks',
+    fields: [
+      { key: 'name', label: 'Benchmark Name', required: true, aliases: ['name', 'benchmark', 'benchmark name', 'series'] },
+      { key: 'currency', label: 'Currency', aliases: ['currency', 'ccy'] },
+      { key: 'date', label: 'Date', required: true, aliases: ['date', 'as of date', 'asofdate', 'price date', 'pricedate'] },
+      { key: 'value', label: 'Value / Price', required: true, numeric: true, aliases: ['value', 'price', 'close', 'index', 'level'] },
+      { key: 'source', label: 'Source', aliases: ['source', 'src', 'provider'] },
+    ],
+    defaults: (settings) => ({ currency: settings.defaultCurrency || 'EGP' }),
+  },
 };
 
-export const TYPE_ORDER = ['cashflow', 'gold', 'fx', 'cpi'];
+export const TYPE_ORDER = ['cashflow', 'gold', 'fx', 'cpi', 'investment', 'custombenchmark'];
 
 // ---------------------------------------------------------------------------
 // Delimited parsing
@@ -277,13 +308,21 @@ export function buildRecord(type, row, map, opts) {
     case 'cashflow': {
       const di = parseDateField(pick(row, map, 'date'), opts.dateFormat);
       const amt = num(pick(row, map, 'amount'));
+      const rawDir = (pick(row, map, 'direction') || d.direction).toLowerCase();
+      const direction = DIRECTIONS.some(x => x.value === rawDir) ? rawDir : (rawDir === 'in' ? 'inflow' : rawDir === 'out' ? 'outflow' : d.direction);
+      const txType = pick(row, map, 'transactionType') || d.transactionType;
       return {
         date: di.iso || '',
         amount: amt.value == null ? '' : amt.value,
+        direction,
+        transactionType: txType,
         currency: pick(row, map, 'currency') || d.currency,
+        quantity: pick(row, map, 'quantity') ? num(pick(row, map, 'quantity')).value : '',
+        unitPrice: pick(row, map, 'unitPrice') ? num(pick(row, map, 'unitPrice')).value : '',
+        fees: pick(row, map, 'fees') ? num(pick(row, map, 'fees')).value : '',
         description: pick(row, map, 'description') || '',
         installmentNumber: pick(row, map, 'installmentNumber') ? num(pick(row, map, 'installmentNumber')).value : '',
-        paymentType: pick(row, map, 'paymentType') || d.paymentType,
+        paymentType: txType, // legacy compat
         status: (pick(row, map, 'status') || d.status).toLowerCase(),
         notes: pick(row, map, 'notes') || '',
         quality: d.quality,
@@ -343,6 +382,35 @@ export function buildRecord(type, row, map, opts) {
         _dateInfo: di, _valueInfo: val,
       };
     }
+    case 'investment': {
+      const di = parseDateField(pick(row, map, 'valuationDate'), opts.dateFormat);
+      const cdi = parseDateField(pick(row, map, 'contractDate'), opts.dateFormat);
+      const val = num(pick(row, map, 'currentValuation'));
+      return {
+        name: pick(row, map, 'name') || '',
+        type: pick(row, map, 'type') || d.type,
+        status: pick(row, map, 'status') || d.status,
+        baseCurrency: pick(row, map, 'baseCurrency') || d.baseCurrency,
+        valuationDate: di.iso || '',
+        currentValuation: val.value == null ? '' : val.value,
+        contractDate: cdi.iso || '',
+        location: pick(row, map, 'location') || '',
+        description: pick(row, map, 'description') || '',
+        _dateInfo: di, _valInfo: val,
+      };
+    }
+    case 'custombenchmark': {
+      const di = parseDateField(pick(row, map, 'date'), opts.dateFormat);
+      const val = num(pick(row, map, 'value'));
+      return {
+        name: pick(row, map, 'name') || '',
+        currency: pick(row, map, 'currency') || d.currency,
+        date: di.iso || '',
+        value: val.value == null ? '' : val.value,
+        source: pick(row, map, 'source') || '',
+        _dateInfo: di, _valueInfo: val,
+      };
+    }
   }
 }
 
@@ -356,7 +424,13 @@ export function validateImportRow(type, rec, ctx = {}) {
     if (rec._dateInfo?.error) errors.push(rec._dateInfo.error);
     if (rec._amountInfo?.error) errors.push(`Amount: ${rec._amountInfo.error}`);
     if (rec.status !== 'refunded' && !(Number(rec.amount) > 0)) errors.push('Amount must be greater than 0 (unless refunded).');
+    if (!DIRECTIONS.some(x => x.value === rec.direction)) errors.push(`Direction must be "outflow" or "inflow" (got "${rec.direction}").`);
     if (!rec.currency) errors.push('Currency is required.');
+    if (rec.transactionType && !TRANSACTION_TYPES.outflow.includes(rec.transactionType) && !TRANSACTION_TYPES.inflow.includes(rec.transactionType)) warnings.push(`Transaction type "${rec.transactionType}" is not a standard type.`);
+    if (rec.direction && rec.transactionType && !TRANSACTION_TYPES[rec.direction].includes(rec.transactionType)) warnings.push(`Transaction type "${rec.transactionType}" is unusual for direction "${rec.direction}".`);
+    if (rec.quantity !== '' && rec.quantity != null && !(Number(rec.quantity) >= 0)) errors.push('Quantity must be >= 0.');
+    if (rec.unitPrice !== '' && rec.unitPrice != null && !(Number(rec.unitPrice) >= 0)) errors.push('Unit price must be >= 0.');
+    if (rec.fees !== '' && rec.fees != null && !(Number(rec.fees) >= 0)) errors.push('Fees must be >= 0.');
     if (rec.date && ctx.valuationDate && rec.status === 'paid') {
       if (new Date(rec.date + 'T00:00:00Z') >= new Date(ctx.valuationDate + 'T00:00:00Z')) {
         errors.push('Paid payment date must be before the valuation date.');
@@ -383,6 +457,18 @@ export function validateImportRow(type, rec, ctx = {}) {
     if (rec._dateInfo?.error) errors.push(rec._dateInfo.error);
     if (rec._valueInfo?.error) errors.push(`CPI value: ${rec._valueInfo.error}`);
     if (!(Number(rec.cpiValue) > 0)) errors.push('CPI value must be greater than 0.');
+  } else if (type === 'investment') {
+    if (!rec.name) errors.push('Investment name is required.');
+    if (rec._dateInfo?.error) errors.push(rec._dateInfo.error);
+    if (!rec.valuationDate) errors.push('Valuation date is required.');
+    if (rec.type && !INVESTMENT_TYPES[rec.type]) errors.push(`Unknown investment type: ${rec.type}`);
+    if (rec.status && !INVESTMENT_STATUSES.includes(rec.status)) errors.push(`Unknown status: ${rec.status}`);
+    if (rec.currentValuation !== '' && rec.currentValuation != null && !(Number(rec.currentValuation) >= 0)) errors.push('Current value must be >= 0.');
+  } else if (type === 'custombenchmark') {
+    if (!rec.name) errors.push('Benchmark name is required.');
+    if (rec._dateInfo?.error) errors.push(rec._dateInfo.error);
+    if (rec._valueInfo?.error) errors.push(`Value: ${rec._valueInfo.error}`);
+    if (!(Number(rec.value) > 0)) errors.push('Value must be greater than 0.');
   }
   return { errors, warnings };
 }
@@ -391,10 +477,12 @@ export function validateImportRow(type, rec, ctx = {}) {
 // Duplicate / conflict detection
 // ---------------------------------------------------------------------------
 export function dupKey(type, rec, ctx = {}) {
-  if (type === 'cashflow') return `${ctx.investmentId || ''}|${rec.date}|${rec.amount}|${rec.installmentNumber || ''}`;
+  if (type === 'cashflow') return `${ctx.investmentId || ''}|${rec.date}|${rec.amount}|${rec.direction || 'outflow'}|${rec.transactionType || ''}|${rec.installmentNumber || ''}`;
   if (type === 'gold') return `${rec.date}|${rec.karat}|${rec.unit}`;
   if (type === 'fx') return `${rec.date}|${rec.base}|${rec.quote}`;
   if (type === 'cpi') return `${rec.effectiveDate}|${rec.country}`;
+  if (type === 'investment') return `inv|${(rec.name || '').toLowerCase().trim()}`;
+  if (type === 'custombenchmark') return `cb|${(rec.name || '').toLowerCase().trim()}|${rec.date}`;
   return '';
 }
 
@@ -454,8 +542,9 @@ export function buildOps(type, preparedRows, actions) {
     if (!action || action === 'skip' || action === 'skip-reject') return;
     if (action === 'insert' || action === 'keep') {
       ops.push({ action: 'insert', record: cleanRecord(type, p.built) });
-    } else if (action === 'replace' && p.existingId) {
-      ops.push({ action: 'replace', existingId: p.existingId, record: cleanRecord(type, p.built) });
+    } else if (action === 'replace') {
+      if (p.existingId) ops.push({ action: 'replace', existingId: p.existingId, record: cleanRecord(type, p.built) });
+      else ops.push({ action: 'insert', record: cleanRecord(type, p.built) }); // e.g. custom-benchmark merge
     }
   });
   return ops;

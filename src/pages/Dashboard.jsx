@@ -7,6 +7,7 @@ import PerformanceGrid from '@/components/PerformanceGrid';
 import { ComparisonChart, CumulativeCashChart } from '@/components/Charts';
 import { Link } from 'react-router-dom';
 import { ArrowRight, AlertTriangle, LayoutGrid, GitCompare } from 'lucide-react';
+import GovernanceBadge from '@/components/GovernanceBadge';
 
 export default function Dashboard() {
   const s = useStore();
@@ -31,6 +32,7 @@ export default function Dashboard() {
         <div>
           <h1 className="text-2xl font-heading tracking-tight">{investment.name}</h1>
           <p className="text-sm text-muted-foreground">Valuation date: {investment.valuationDate} • Currency: {cur} • Policy: {s.settings.defaultDatePolicy}</p>
+          <div className="mt-1 flex items-center gap-2"><span className="text-xs text-muted-foreground">Data status:</span><GovernanceBadge status={analysis.governance?.status || 'READY'} /></div>
         </div>
         <div className="flex flex-wrap gap-2">
           <Button asChild variant="outline"><Link to="/portfolio"><LayoutGrid className="w-4 h-4 mr-2" />Portfolio</Link></Button>

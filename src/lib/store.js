@@ -1,4 +1,5 @@
 import { sampleState, emptyState, defaultSettings } from './sampleData';
+import { buildBackup, validateBackup } from './backup';
 
 const KEY = 'pia.state.v1';
 const listeners = new Set();
@@ -155,24 +156,29 @@ export function deleteScenario(id) { update(s => ({ ...s, scenarios: s.scenarios
 // ---------- Atomic import plan (Import Center) ----------
 // ops: [{ action: 'insert'|'replace'|'skip', record, existingId }]
 // Performs a single atomic update so a failed import never partially destroys data.
-const COLLECTION = { cashflow: 'cashflows', gold: 'gold', fx: 'fx', cpi: 'cpi' };
-const PREFIX = { cashflow: 'cf', gold: 'g', fx: 'fx', cpi: 'cpi' };
+const COLLECTION = { cashflow: 'cashflows', gold: 'gold', fx: 'fx', cpi: 'cpi', investment: 'investments' };
+const PREFIX = { cashflow: 'cf', gold: 'g', fx: 'fx', cpi: 'cpi', investment: 'inv' };
 export function applyImportPlan(type, ops) {
   const key = COLLECTION[type];
   const prefix = PREFIX[type];
   if (!key) return { inserted: 0, replaced: 0, skipped: 0 };
   let inserted = 0, replaced = 0, skipped = 0;
+  const now = new Date().toISOString();
   update(s => {
     let arr = s[key];
     for (const op of ops) {
       if (op.action === 'insert') {
-        arr = [...arr, { ...op.record, id: uid(prefix) }];
+        const rec = { ...op.record, id: uid(prefix) };
+        if (key === 'investments') { rec.createdDate = now; rec.updatedDate = now; }
+        arr = [...arr, rec];
         inserted++;
       } else if (op.action === 'replace' && op.existingId) {
         arr = arr.map(r => {
           if (r.id !== op.existingId) return r;
           replaced++;
-          return { ...op.record, id: op.existingId, createdDate: r.createdDate || new Date().toISOString() };
+          const rec = { ...op.record, id: op.existingId, createdDate: r.createdDate || now };
+          if (key === 'investments') rec.updatedDate = now;
+          return rec;
         });
       } else {
         skipped++;
@@ -181,6 +187,41 @@ export function applyImportPlan(type, ops) {
     return { ...s, [key]: arr };
   });
   return { inserted, replaced, skipped };
+}
+
+// Custom benchmark data import — rows are grouped by benchmark name and merged
+// by date (existing dates overwritten, new dates appended). Atomic single update.
+export function bulkUpsertCustomBenchmarks(groups) {
+  let touched = 0;
+  update(s => {
+    let customBenchmarks = [...(s.customBenchmarks || [])];
+    for (const g of groups) {
+      const existing = customBenchmarks.find(b => b.name === g.name);
+      if (existing) {
+        const byDate = new Map((existing.data || []).map(r => [r.date, r]));
+        for (const row of g.data) byDate.set(row.date, row);
+        const data = [...byDate.values()].sort((a, b) => (a.date < b.date ? -1 : 1));
+        customBenchmarks = customBenchmarks.map(b => b.id === existing.id ? { ...b, currency: b.currency || g.currency, data } : b);
+      } else {
+        customBenchmarks.push({ id: uid('cb'), name: g.name, currency: g.currency || 'EGP', data: g.data.slice().sort((a, b) => (a.date < b.date ? -1 : 1)) });
+      }
+      touched++;
+    }
+    return { ...s, customBenchmarks };
+  });
+  return touched;
+}
+
+// ---------- Full-state backup / restore (atomic) ----------
+export function exportBackupString() {
+  return JSON.stringify(buildBackup(state), null, 2);
+}
+export function restoreBackup(parsed) {
+  const v = validateBackup(parsed);
+  if (!v.ok) return { ok: false, error: v.error };
+  // Atomic: validate happened above; a single normalize+update replaces state.
+  update(() => normalize(parsed.state));
+  return { ok: true, preview: v.preview };
 }
 
 // ---------- Settings ----------

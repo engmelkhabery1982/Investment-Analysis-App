@@ -1,8 +1,17 @@
-import { Coins, Building2, DollarSign, TrendingUp } from 'lucide-react';
+import { Coins, Building2, DollarSign, TrendingUp, Landmark, LineChart } from 'lucide-react';
 import { IMPORT_TYPES, TYPE_ORDER } from '@/lib/importEngine';
 import { Badge } from '@/components/ui/badge';
 
-const ICONS = { cashflow: Building2, gold: Coins, fx: DollarSign, cpi: TrendingUp };
+const ICONS = { cashflow: Building2, gold: Coins, fx: DollarSign, cpi: TrendingUp, investment: Landmark, custombenchmark: LineChart };
+
+const TEMPLATES = {
+  cashflow: 'date, amount, direction, transactionType, currency, quantity, unitPrice, fees, status',
+  gold: 'date, karat, unit, ask, bid, source',
+  fx: 'date, base, quote, bid, ask, source',
+  cpi: 'effectiveDate, cpiValue, frequency, country, source',
+  investment: 'name, type, status, baseCurrency, valuationDate, currentValuation, contractDate',
+  custombenchmark: 'name, currency, date, value, source',
+};
 
 export default function TypeCards({ selected, counts, lastResults, onSelect }) {
   return (
@@ -28,6 +37,7 @@ export default function TypeCards({ selected, counts, lastResults, onSelect }) {
               {active && <Badge>Selected</Badge>}
             </div>
             <p className="text-sm text-muted-foreground mt-3">{cfg.description}</p>
+            <div className="mt-2 text-xs text-muted-foreground"><span className="font-medium">Template:</span> <span className="font-mono">{TEMPLATES[t]}</span></div>
             <div className="mt-3 text-xs text-muted-foreground">
               Supports: CSV file, Excel (.xlsx), paste from spreadsheet
               {last && <span className="block mt-1 text-foreground">Last import: {last.inserted} inserted, {last.replaced} replaced, {last.skipped} skipped • {new Date(last.timestamp).toLocaleString()}</span>}

@@ -4,12 +4,15 @@ import { setSelectedInvestment } from '@/lib/store';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import MetricCard from '@/components/MetricCard';
 import EmptyState from '@/components/EmptyState';
 import { fmtMoney, fmtPct, fmtNumber } from '@/lib/format';
 import { typeLabel } from '@/lib/portfolio';
 import { INVESTMENT_TYPES } from '@/lib/model';
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, Download } from 'lucide-react';
+import { downloadCSV } from '@/lib/csv';
+import { portfolioSummaryRows } from '@/lib/summaryExport';
 
 export default function Portfolio() {
   const s = useStore();
@@ -27,9 +30,17 @@ export default function Portfolio() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-heading tracking-tight">Portfolio</h1>
-        <p className="text-sm text-muted-foreground">{t.count} investment{t.count === 1 ? '' : 's'} • aggregated from the centralized performance engine</p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-heading tracking-tight">Portfolio</h1>
+          <p className="text-sm text-muted-foreground">{t.count} investment{t.count === 1 ? '' : 's'} • aggregated from the centralized performance engine</p>
+          <p className="text-xs text-muted-foreground mt-1">
+            Reporting / as-of date: <span className="font-medium text-foreground">{portfolio.reportingAsOf || '—'}</span>
+            {' • '}valuation-date mode: <span className="font-medium text-foreground">{portfolio.valuationDateMode || 'single'}</span>
+            {' • '}XIRR mode: <span className="font-medium text-foreground">{portfolio.portfolioXIRRMode || 'combined-dated'}</span>
+          </p>
+        </div>
+        <Button variant="outline" onClick={() => downloadCSV('portfolio_summary.csv', portfolioSummaryRows(portfolio, s))}><Download className="w-4 h-4 mr-2" />Export summary</Button>
       </div>
 
       {portfolio.warnings && portfolio.warnings.length > 0 && (

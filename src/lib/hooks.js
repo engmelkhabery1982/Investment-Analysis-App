@@ -3,6 +3,8 @@ import { useSyncExternalStore } from 'react';
 import { subscribe, getState } from './store';
 import { analyzeInvestment } from './performance';
 import { analyzePortfolio } from './portfolio';
+import { buildDataQuality } from './dataQuality';
+import { aggregateAudit } from './auditAggregator';
 
 export function useStore() {
   return useSyncExternalStore(subscribe, getState, getState);
@@ -62,4 +64,16 @@ export function usePortfolio() {
 export function useScenarios(investmentId) {
   const s = useStore();
   return useMemo(() => (s.scenarios || []).filter(x => x.investmentId === investmentId), [s.scenarios, investmentId]);
+}
+
+// Portfolio-wide governance surfaces (aggregation only — no recalculation).
+export function useDataQuality() {
+  const s = useStore();
+  const all = useAllAnalyses();
+  return useMemo(() => buildDataQuality(s, all), [s, all]);
+}
+export function useAuditRows() {
+  const s = useStore();
+  const all = useAllAnalyses();
+  return useMemo(() => aggregateAudit(s, all), [s, all]);
 }

@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { ArrowLeft, Pencil, Plus, Trash2, FlaskConical } from 'lucide-react';
+import { ArrowLeft, Pencil, Plus, Trash2, FlaskConical, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
@@ -11,6 +11,8 @@ import { setSelectedInvestment, addScenario, updateScenario, deleteScenario } fr
 import { INVESTMENT_TYPES, CLOSED_STATUSES } from '@/lib/model';
 import { applyScenario } from '@/lib/scenarios';
 import { fmtMoney, fmtPct } from '@/lib/format';
+import { downloadCSV } from '@/lib/csv';
+import { investmentSummaryRows } from '@/lib/summaryExport';
 import EmptyState from '@/components/EmptyState';
 import InvestmentForm from '@/components/InvestmentForm';
 import TransactionsPanel from '@/components/TransactionsPanel';
@@ -67,7 +69,10 @@ export default function Workspace() {
             {isClosed && <Badge variant="outline">Closed — terminal value forced 0</Badge>}
           </div>
         </div>
-        <Button variant="outline" onClick={() => setEditInvOpen(true)}><Pencil className="w-4 h-4 mr-2" />Edit</Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => downloadCSV(`${investment.name.replace(/\s+/g, '_')}_summary.csv`, investmentSummaryRows(analysis, investment))}><Download className="w-4 h-4 mr-2" />Export summary</Button>
+          <Button variant="outline" onClick={() => setEditInvOpen(true)}><Pencil className="w-4 h-4 mr-2" />Edit</Button>
+        </div>
       </div>
 
       <Tabs defaultValue="overview">

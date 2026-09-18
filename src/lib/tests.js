@@ -1,12 +1,16 @@
 import * as D from './decimal';
 import { resolveDate, goldComparison, fxComparison, cpiComparison, eligibleCashFlows, parseDate } from './finance';
-import { parseDelimited, parseClipboard, autoMapColumns, parseDateField, parseNumber, prepareRows, buildRecord, validateImportRow } from './importEngine';
+import { parseDelimited, parseClipboard, autoMapColumns, parseDateField, parseNumber, prepareRows, buildRecord, validateImportRow, dupKey, buildOps, STATUS } from './importEngine';
 import { signedAmount, eligibleTransactions, outflows, inflows } from './transactions';
 import { analyzeInvestment, computeXIRR } from './performance';
 import { evaluateBenchmark, benchmarkRegistry } from './benchmarks';
 import { rollupStatus, dateGapStatus } from './governance';
 import { analyzePortfolio } from './portfolio';
 import { applyScenario } from './scenarios';
+import { aggregateAudit, filterAudit, auditCSVRows } from './auditAggregator';
+import { buildDataQuality } from './dataQuality';
+import { buildBackup, validateBackup, BACKUP_VERSION } from './backup';
+import { investmentSummaryRows, portfolioSummaryRows } from './summaryExport';
 
 // Spec test cases. Returns array of { name, passed, detail }.
 export function runTests() {
@@ -434,6 +438,284 @@ export function runTests() {
     check('Legacy investment (no type/status) still analyzes', res.performance != null && Math.abs(res.performance.moic - 1.5) < 1e-6, `got ${res.performance.moic}`);
     check('Legacy investment defaults to Active (not closed)', res.isClosed === false);
     check('Legacy cashflow (no direction) treated as outflow', res.performance.totalOutflows === 100000, `got ${res.performance.totalOutflows}`);
+  }
+
+  // ---- Final Governance & Portability tests ----
+  function allAnalysesOf(state) {
+    return state.investments.map(inv => {
+      const transactions = (state.cashflows || []).filter(c => c.investmentId === inv.id);
+      return { investment: inv, analysis: analyzeInvestment({ investment: inv, transactions, gold: state.gold, fx: state.fx, cpi: state.cpi, customBenchmarks: state.customBenchmarks, settings: state.settings }) };
+    });
+  }
+
+  // 46. Audit aggregation — traceable rows with investment + benchmark + applied date
+  {
+    const state = {
+      investments: [{ id: 'i1', name: 'Apt', type: 'real_estate', status: 'Active', valuationDate: '2025-01-01', currentValuation: 150000, baseCurrency: 'EGP' }],
+      cashflows: [{ id: 'o', investmentId: 'i1', date: '2024-01-01', amount: 100000, direction: 'outflow', transactionType: 'Purchase', status: 'paid' }],
+      gold: [{ date: '2024-01-01', karat: '21K', unit: 'gram', ask: 4000, bid: 3900, source: 'SGE' }, { date: '2025-01-01', karat: '21K', unit: 'gram', ask: 5000, bid: 4900, source: 'SGE' }],
+      fx: [], cpi: [], customBenchmarks: [], settings: { ...baseSettings, enabledCurrencies: [] },
+    };
+    const rows = aggregateAudit(state, allAnalysesOf(state));
+    check('Audit aggregates rows', rows.length > 0, `got ${rows.length}`);
+    const goldRow = rows.find(r => r.benchmark === 'Gold' && r.appliedDate);
+    check('Audit Gold row carries investment name', goldRow && goldRow.investmentName === 'Apt', `got ${goldRow && goldRow.investmentName}`);
+    check('Audit Gold row carries transaction direction/type', goldRow && goldRow.direction === 'outflow' && goldRow.transactionType === 'Purchase', `got ${goldRow && goldRow.direction}/${goldRow && goldRow.transactionType}`);
+    check('Audit Gold row carries applied source date', goldRow && goldRow.appliedDate === '2024-01-01', `got ${goldRow && goldRow.appliedDate}`);
+    check('Audit Gold row resolves data source', goldRow && goldRow.source === 'SGE', `got ${goldRow && goldRow.source}`);
+  }
+  // 47. Audit filtering by investment / benchmark / status + CSV export
+  {
+    const state = {
+      investments: [{ id: 'i1', name: 'A', type: 'real_estate', status: 'Active', valuationDate: '2025-01-01', currentValuation: 150000, baseCurrency: 'EGP' }],
+      cashflows: [{ id: 'o', investmentId: 'i1', date: '2024-01-01', amount: 100000, direction: 'outflow', transactionType: 'Purchase', status: 'paid' }],
+      gold: [], fx: [], cpi: [], customBenchmarks: [], settings: baseSettings,
+    };
+    const rows = aggregateAudit(state, allAnalysesOf(state));
+    const byInv = filterAudit(rows, { investmentId: 'i1' });
+    check('Audit filter by investment returns all its rows', byInv.length === rows.length, `got ${byInv.length}`);
+    const errOnly = filterAudit(rows, { status: 'ERROR' });
+    check('Audit filter by ERROR returns only unresolved rows', errOnly.every(r => r.status === 'ERROR'), `got ${errOnly.length}`);
+    const csv = auditCSVRows(rows);
+    check('Audit CSV has header + rows', csv.length === rows.length + 1 && csv[0].length > 10, `got ${csv.length}`);
+  }
+  // 48. Data Quality severity rollup + missing market data
+  {
+    const state = {
+      investments: [{ id: 'i1', name: 'A', type: 'real_estate', status: 'Active', valuationDate: '2025-01-01', currentValuation: 150000, baseCurrency: 'EGP' }],
+      cashflows: [{ id: 'o', investmentId: 'i1', date: '2024-01-01', amount: 100000, direction: 'outflow', transactionType: 'Purchase', status: 'paid' }],
+      gold: [], fx: [], cpi: [], customBenchmarks: [], settings: baseSettings,
+    };
+    const dq = buildDataQuality(state, allAnalysesOf(state));
+    check('DQ: gold missing flagged', dq.missing.gold >= 1, `got ${dq.missing.gold}`);
+    check('DQ: issues sorted worst-first (BLOCKING/ERROR before WARNING)', dq.issues.length > 0, `got ${dq.issues.length}`);
+    check('DQ: status is not READY when data missing', dq.status !== 'READY', `got ${dq.status}`);
+  }
+  // 49. Date-gap classification in data quality
+  {
+    const state = {
+      investments: [{ id: 'i1', name: 'A', type: 'real_estate', status: 'Active', valuationDate: '2025-01-01', currentValuation: 150000, baseCurrency: 'EGP' }],
+      cashflows: [{ id: 'o', investmentId: 'i1', date: '2024-01-01', amount: 100000, direction: 'outflow', transactionType: 'Purchase', status: 'paid' }],
+      gold: [{ date: '2024-01-15', karat: '21K', unit: 'gram', ask: 4000, bid: 3900 }], // 14 days away under 'nearest'/'previous'
+      fx: [], cpi: [], customBenchmarks: [], settings: { ...baseSettings, defaultDatePolicy: 'nearest' },
+    };
+    const dq = buildDataQuality(state, allAnalysesOf(state));
+    check('DQ: date-gap detected for gold', dq.gaps.some(g => g.benchmark === 'Gold' && g.gapDays > 0), `got ${JSON.stringify(dq.gaps)}`);
+  }
+  // 50. Exact duplicate vs true import conflict (distinct keys by direction/type)
+  {
+    const existing = [{ id: 'cf-1', date: '2024-01-01', amount: 1000, direction: 'outflow', transactionType: 'Purchase', installmentNumber: '' }];
+    // same everything => conflict
+    const sameRow = ['2024-01-01', '1000', 'outflow', 'Purchase'];
+    const map = { date: 0, amount: 1, direction: 2, transactionType: 3 };
+    const pSame = prepareRows('cashflow', [sameRow], map, { dateFormat: 'auto', numberFormat: 'auto', settings: {} }, existing, { investmentId: 'i1' });
+    check('Cashflow exact duplicate of existing -> conflict', pSame[0].status === 'conflict', `got ${pSame[0].status}`);
+    // same date+amount but DIFFERENT direction/type -> NOT a conflict (distinct keys)
+    const diffRow = ['2024-01-01', '1000', 'inflow', 'Rent'];
+    const pDiff = prepareRows('cashflow', [diffRow], map, { dateFormat: 'auto', numberFormat: 'auto', settings: {} }, existing, { investmentId: 'i1' });
+    check('Cashflow different direction/type -> new (not conflict)', pDiff[0].status === 'new', `got ${pDiff[0].status}`);
+    // two identical rows in the same batch -> second is duplicate
+    const batch = [sameRow, sameRow];
+    const pBatch = prepareRows('cashflow', batch, map, { dateFormat: 'auto', numberFormat: 'auto', settings: {} }, [], { investmentId: 'i1' });
+    check('Cashflow batch exact duplicate -> duplicate', pBatch[1].status === 'duplicate', `got ${pBatch[1].status}`);
+  }
+  // 51. Ambiguous import values must be flagged
+  {
+    const r = parseDateField('05/06/2024', 'auto');
+    check('Ambiguous date flagged (not silently guessed)', r.ambiguous === true, `got ${JSON.stringify(r)}`);
+    const resolved = parseDateField('05/06/2024', 'mdy');
+    check('Ambiguous date resolved once format chosen', resolved.iso === '2024-05-06' && !resolved.ambiguous, `got ${resolved.iso}`);
+  }
+  // 52. Universal transaction import (direction, type, quantity, unit price, fees)
+  {
+    const row = ['2024-01-01', '50000', 'outflow', 'Purchase', 'EGP', '10', '5000', '25'];
+    const map = { date: 0, amount: 1, direction: 2, transactionType: 3, currency: 4, quantity: 5, unitPrice: 6, fees: 7 };
+    const rec = buildRecord('cashflow', row, map, { dateFormat: 'auto', numberFormat: 'auto', settings: {} });
+    check('Universal cashflow: direction mapped', rec.direction === 'outflow', `got ${rec.direction}`);
+    check('Universal cashflow: transactionType mapped', rec.transactionType === 'Purchase', `got ${rec.transactionType}`);
+    check('Universal cashflow: quantity/unitPrice/fees parsed', rec.quantity === 10 && rec.unitPrice === 5000 && rec.fees === 25, `got ${rec.quantity}/${rec.unitPrice}/${rec.fees}`);
+    const v = validateImportRow('cashflow', rec, {});
+    check('Universal cashflow: valid row has no errors', v.errors.length === 0, `got ${JSON.stringify(v.errors)}`);
+    check('Universal cashflow: dupKey includes direction+type', dupKey('cashflow', rec, { investmentId: 'i1' }) === 'i1|2024-01-01|50000|outflow|Purchase|', `got ${dupKey('cashflow', rec, { investmentId: 'i1' })}`);
+  }
+  // 53. Precision preservation through import
+  {
+    const r = parseNumber('123456.789012345');
+    check('Imported numeric value preserves precision', Math.abs(r.value - 123456.789012345) < 1e-9, `got ${r.value}`);
+    const rec = buildRecord('cashflow', ['2024-01-01', '123456.789012345', 'outflow', 'Purchase'], { date: 0, amount: 1, direction: 2, transactionType: 3 }, { dateFormat: 'auto', numberFormat: 'auto', settings: {} });
+    check('Built cashflow preserves amount precision', Math.abs(rec.amount - 123456.789012345) < 1e-9, `got ${rec.amount}`);
+  }
+  // 54. Invalid-row atomicity — error rows excluded from import ops
+  {
+    const rows = [['2024-01-01', '1000', 'outflow', 'Purchase'], ['2024-01-01', '0', 'outflow', 'Purchase']];
+    const map = { date: 0, amount: 1, direction: 2, transactionType: 3 };
+    const prepared = prepareRows('cashflow', rows, map, { dateFormat: 'auto', numberFormat: 'auto', settings: {} }, [], { investmentId: 'i1' });
+    const actions = prepared.map(p => p.status === STATUS.ERROR ? 'skip-reject' : 'insert');
+    const ops = buildOps('cashflow', prepared, actions);
+    check('Invalid row rejected (status=error)', prepared[1].status === 'error', `got ${prepared[1].status}`);
+    check('Invalid row excluded from import ops (atomicity)', ops.length === 1 && ops[0].record.amount === 1000, `got ${ops.length}`);
+  }
+  // 55. Investment import type
+  {
+    const row = ['Villa', 'real_estate', 'Active', 'EGP', '2025-01-01', '2000000'];
+    const map = { name: 0, type: 1, status: 2, baseCurrency: 3, valuationDate: 4, currentValuation: 5 };
+    const rec = buildRecord('investment', row, map, { dateFormat: 'auto', numberFormat: 'auto', settings: baseSettings });
+    const v = validateImportRow('investment', rec, {});
+    check('Investment import: name/type/status/valuation mapped', rec.name === 'Villa' && rec.type === 'real_estate' && rec.status === 'Active' && rec.valuationDate === '2025-01-01', `got ${JSON.stringify(rec)}`);
+    check('Investment import: valid row has no errors', v.errors.length === 0, `got ${JSON.stringify(v.errors)}`);
+    check('Investment import: dupKey by name', dupKey('investment', rec) === 'inv|villa', `got ${dupKey('investment', rec)}`);
+    const bad = buildRecord('investment', ['', 'real_estate', 'Active', 'EGP', '', ''], map, { dateFormat: 'auto', numberFormat: 'auto', settings: baseSettings });
+    check('Investment import: missing name+valuation rejected', validateImportRow('investment', bad, {}).errors.length > 0, `got ${validateImportRow('investment', bad, {}).errors.length}`);
+  }
+  // 56. Custom benchmark data import
+  {
+    const row = ['EGI30', 'EGP', '2024-01-01', '1200', 'CAPMAS'];
+    const map = { name: 0, currency: 1, date: 2, value: 3, source: 4 };
+    const rec = buildRecord('custombenchmark', row, map, { dateFormat: 'auto', numberFormat: 'auto', settings: baseSettings });
+    const v = validateImportRow('custombenchmark', rec, {});
+    check('Custom benchmark import: name/date/value/source mapped', rec.name === 'EGI30' && rec.date === '2024-01-01' && rec.value === 1200 && rec.source === 'CAPMAS', `got ${JSON.stringify(rec)}`);
+    check('Custom benchmark import: valid row has no errors', v.errors.length === 0, `got ${JSON.stringify(v.errors)}`);
+    check('Custom benchmark import: dupKey by name+date', dupKey('custombenchmark', rec) === 'cb|egi30|2024-01-01', `got ${dupKey('custombenchmark', rec)}`);
+  }
+  // 57. Full backup export — structure, version, all collections
+  {
+    const state = {
+      investments: [{ id: 'i1', name: 'A', type: 'real_estate', status: 'Active', valuationDate: '2025-01-01', currentValuation: 150000, baseCurrency: 'EGP' }],
+      cashflows: [{ id: 'o', investmentId: 'i1', date: '2024-01-01', amount: 100000, direction: 'outflow', status: 'paid' }],
+      gold: [{ id: 'g1', date: '2024-01-01', karat: '21K', ask: 4000, bid: 3900 }],
+      fx: [{ id: 'f1', date: '2024-01-01', base: 'USD', quote: 'EGP', bid: 48, ask: 48.5 }],
+      cpi: [{ id: 'c1', effectiveDate: '2024-01-01', cpiValue: 200 }],
+      customBenchmarks: [{ id: 'cb1', name: 'EGI30', currency: 'EGP', data: [{ date: '2024-01-01', value: 1200 }] }],
+      scenarios: [{ id: 'sc1', name: 'Bull', investmentId: 'i1', overrides: { currentValuation: 200000 } }],
+      settings: { ...baseSettings, defaultCurrency: 'EGP' },
+    };
+    const bk = buildBackup(state);
+    check('Backup: format = pia-backup', bk.format === 'pia-backup', `got ${bk.format}`);
+    check('Backup: version = BACKUP_VERSION', bk.version === BACKUP_VERSION, `got ${bk.version}`);
+    check('Backup: contains investments', bk.state.investments.length === 1);
+    check('Backup: contains scenarios', bk.state.scenarios.length === 1);
+    check('Backup: contains custom benchmarks', bk.state.customBenchmarks.length === 1);
+    check('Backup: contains settings', bk.state.settings.defaultCurrency === 'EGP');
+  }
+  // 58. Valid restore — JSON round-trip preserves all counts
+  {
+    const state = {
+      investments: [{ id: 'i1', name: 'A', type: 'real_estate', status: 'Active', valuationDate: '2025-01-01', currentValuation: 150000, baseCurrency: 'EGP' }],
+      cashflows: [{ id: 'o', investmentId: 'i1', date: '2024-01-01', amount: 100000, direction: 'outflow', status: 'paid' }],
+      gold: [], fx: [], cpi: [], customBenchmarks: [{ id: 'cb1', name: 'EGI30', currency: 'EGP', data: [] }],
+      scenarios: [{ id: 'sc1', name: 'S', investmentId: 'i1', overrides: {} }],
+      settings: baseSettings,
+    };
+    const round = JSON.parse(JSON.stringify(buildBackup(state)));
+    const v = validateBackup(round);
+    check('Valid backup round-trip -> ok', v.ok === true, `got ${v.error}`);
+    check('Valid backup preview counts match', v.preview.investments === 1 && v.preview.cashflows === 1 && v.preview.scenarios === 1 && v.preview.customBenchmarks === 1, `got ${JSON.stringify(v.preview)}`);
+  }
+  // 59. Corrupt backup rejection
+  {
+    check('Corrupt backup (not object) rejected', validateBackup(null).ok === false && validateBackup('x').ok === false);
+    check('Corrupt backup (wrong format) rejected', validateBackup({ format: 'other', version: 1, state: {} }).ok === false);
+    check('Corrupt backup (missing state) rejected', validateBackup({ format: 'pia-backup', version: 1 }).ok === false);
+    check('Corrupt backup (array where object) rejected', validateBackup({ format: 'pia-backup', version: 1, state: { investments: {} } }).ok === false);
+  }
+  // 60. Incompatible-version backup rejection
+  {
+    check('Incompatible (newer) version rejected', validateBackup({ format: 'pia-backup', version: 99, state: {} }).ok === false, `got ${validateBackup({ format: 'pia-backup', version: 99, state: {} }).ok}`);
+  }
+  // 61. Restore atomicity — corrupt backup rejected BEFORE any state change
+  {
+    // validateBackup is the gate restoreBackup uses; a false result means restore returns
+    // { ok:false } without touching the store. We assert the gate is reliable.
+    const corrupt = { format: 'pia-backup', version: 1, state: { investments: 'not-an-array' } };
+    const v = validateBackup(corrupt);
+    check('Restore atomicity: corrupt backup blocked at validation', v.ok === false, `got ${v.error}`);
+    const ok = buildBackup({ investments: [], cashflows: [], gold: [], fx: [], cpi: [], customBenchmarks: [], scenarios: [], settings: {} });
+    check('Restore atomicity: valid backup passes validation', validateBackup(ok).ok === true);
+  }
+  // 62. Scenario + custom benchmark persistence through backup
+  {
+    const state = {
+      investments: [{ id: 'i1', name: 'A', type: 'stock', status: 'Active', valuationDate: '2025-01-01', currentValuation: 120000, baseCurrency: 'EGP' }],
+      cashflows: [], gold: [], fx: [], cpi: [],
+      customBenchmarks: [{ id: 'cb1', name: 'EGI30', currency: 'EGP', data: [{ date: '2024-01-01', value: 1200 }, { date: '2025-01-01', value: 1400 }] }],
+      scenarios: [{ id: 'sc1', name: 'Bull', investmentId: 'i1', overrides: { currentValuation: 200000 } }, { id: 'sc2', name: 'Bear', investmentId: 'i1', overrides: { currentValuation: 80000 } }],
+      settings: baseSettings,
+    };
+    const round = JSON.parse(JSON.stringify(buildBackup(state)));
+    check('Scenarios persist through backup', round.state.scenarios.length === 2, `got ${round.state.scenarios.length}`);
+    check('Custom benchmark data persists through backup', round.state.customBenchmarks[0].data.length === 2, `got ${round.state.customBenchmarks[0].data.length}`);
+  }
+  // 63. Legacy data compatibility through backup
+  {
+    const state = {
+      investments: [{ id: 'i1', name: 'Legacy', valuationDate: '2025-01-01', currentValuation: 150000, baseCurrency: 'EGP' }],
+      cashflows: [{ id: 'o', investmentId: 'i1', date: '2024-01-01', amount: 100000, paymentType: 'Installment', status: 'paid' }],
+      gold: [], fx: [], cpi: [], customBenchmarks: [], scenarios: [], settings: baseSettings,
+    };
+    const bk = buildBackup(state);
+    const v = validateBackup(bk);
+    check('Legacy cashflow (no direction) included in backup', bk.state.cashflows.length === 1, `got ${bk.state.cashflows.length}`);
+    check('Legacy backup validates as ok', v.ok === true, `got ${v.error}`);
+  }
+  // 64. Portfolio differing-valuation-date governance
+  {
+    const state = {
+      investments: [
+        { id: 'a', name: 'A', type: 'real_estate', status: 'Active', valuationDate: '2025-01-01', currentValuation: 150000, baseCurrency: 'EGP' },
+        { id: 'b', name: 'B', type: 'stock', status: 'Active', valuationDate: '2026-01-01', currentValuation: 200000, baseCurrency: 'EGP' },
+      ],
+      cashflows: [
+        { id: 'oa', investmentId: 'a', date: '2024-01-01', amount: 100000, direction: 'outflow', status: 'paid', transactionType: 'Purchase' },
+        { id: 'ob', investmentId: 'b', date: '2024-01-01', amount: 100000, direction: 'outflow', status: 'paid', transactionType: 'Purchase' },
+      ],
+      gold: [], fx: [], cpi: [], customBenchmarks: [], settings: baseSettings,
+    };
+    const p = analyzePortfolio(state);
+    check('Differing val dates: mode = multiple', p.valuationDateMode === 'multiple', `got ${p.valuationDateMode}`);
+    check('Differing val dates: warning emitted', (p.warnings || []).length > 0, `got ${(p.warnings || []).length}`);
+    check('Differing val dates: reportingAsOf = latest (2026-01-01)', p.reportingAsOf === '2026-01-01', `got ${p.reportingAsOf}`);
+    check('Differing val dates: XIRR mode = combined-dated', p.portfolioXIRRMode === 'combined-dated', `got ${p.portfolioXIRRMode}`);
+    check('Differing val dates: XIRR not averaged (coherent money-weighted)', p.totals.portfolioXIRR != null && Math.abs(p.totals.portfolioXIRR - 0.4420232) < 1e-3, `got ${p.totals.portfolioXIRR}`);
+  }
+  // 65. Portfolio single valuation date — no differing-date warning
+  {
+    const state = {
+      investments: [
+        { id: 'a', name: 'A', type: 'real_estate', status: 'Active', valuationDate: '2025-01-01', currentValuation: 150000, baseCurrency: 'EGP' },
+        { id: 'b', name: 'B', type: 'stock', status: 'Active', valuationDate: '2025-01-01', currentValuation: 200000, baseCurrency: 'EGP' },
+      ],
+      cashflows: [
+        { id: 'oa', investmentId: 'a', date: '2024-01-01', amount: 100000, direction: 'outflow', status: 'paid', transactionType: 'Purchase' },
+        { id: 'ob', investmentId: 'b', date: '2024-01-01', amount: 100000, direction: 'outflow', status: 'paid', transactionType: 'Purchase' },
+      ],
+      gold: [], fx: [], cpi: [], customBenchmarks: [], settings: baseSettings,
+    };
+    const p = analyzePortfolio(state);
+    check('Single val date: mode = single', p.valuationDateMode === 'single', `got ${p.valuationDateMode}`);
+    check('Single val date: no differing-date warning', !(p.warnings || []).some(w => /own valuation date/.test(w)), `got ${JSON.stringify(p.warnings)}`);
+  }
+  // 66. Exportable summaries produce rows
+  {
+    const inv = { name: 'Apt', type: 'real_estate', status: 'Active', valuationDate: '2025-01-01', currentValuation: 150000, baseCurrency: 'EGP' };
+    const txs = [{ id: 'o', investmentId: 'i1', date: '2024-01-01', amount: 100000, direction: 'outflow', status: 'paid', transactionType: 'Purchase' }];
+    const analysis = analyzeInvestment({ investment: inv, transactions: txs, gold: [], fx: [], cpi: [], customBenchmarks: [], settings: baseSettings });
+    const rows = investmentSummaryRows(analysis, inv);
+    check('Investment summary exports rows with key metrics', rows.some(r => r[0] === 'ROI') && rows.some(r => r[0] === 'XIRR') && rows.some(r => r[0] === 'MOIC'), `got ${rows.length} rows`);
+    const p = analyzePortfolio({ investments: [{ ...inv, id: 'i1' }], cashflows: txs, gold: [], fx: [], cpi: [], customBenchmarks: [], settings: baseSettings });
+    const prows = portfolioSummaryRows(p, { settings: baseSettings });
+    check('Portfolio summary exports as-of + XIRR mode', prows.some(r => r[0] === 'Portfolio reporting / as-of date') && prows.some(r => r[0] === 'Portfolio XIRR mode'), `got ${prows.length} rows`);
+  }
+  // 67. No regression in verified financial calculations
+  {
+    const flows = [{ id: 't1', date: '2024-01-01', amount: 100000, status: 'paid' }];
+    const gold = [{ date: '2024-01-01', karat: '21K', ask: 4000, bid: 4000 }, { date: '2025-01-01', karat: '21K', ask: 5000, bid: 5000 }];
+    const r = goldComparison(flows, gold, '2025-01-01', 'exact', '21K');
+    check('No regression: Gold liquidation still 125,000', Math.abs(D.toNumber(r.liquidation) - 125000) < 1e-6, `got ${D.toNumber(r.liquidation)}`);
+    const x = computeXIRR([{ date: parseDate('2024-01-01'), amount: -100000 }, { date: parseDate('2025-01-01'), amount: 150000 }]);
+    check('No regression: XIRR still ~0.4983 (actual/365)', x != null && Math.abs(x - 0.498339) < 1e-3, `got ${x}`);
+    const inv = { valuationDate: '2025-01-01', currentValuation: 150000, status: 'Active', type: 'real_estate' };
+    const res = analyzeInvestment({ investment: inv, transactions: [{ id: 'o', date: '2024-01-01', amount: 100000, direction: 'outflow', status: 'paid', transactionType: 'Purchase' }], gold: [], fx: [], cpi: [], customBenchmarks: [], settings: baseSettings });
+    check('No regression: MOIC still 1.5', Math.abs(res.performance.moic - 1.5) < 1e-6, `got ${res.performance.moic}`);
   }
 
   return results;

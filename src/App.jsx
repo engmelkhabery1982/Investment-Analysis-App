@@ -16,6 +16,7 @@ import MarketData from '@/pages/MarketData';
 import DataImport from '@/pages/DataImport';
 import Analysis from '@/pages/Analysis';
 import Audit from '@/pages/Audit';
+import DataQuality from '@/pages/DataQuality';
 import Settings from '@/pages/Settings';
 import Tests from '@/pages/Tests';
 // Add page imports here
@@ -56,6 +57,7 @@ const AuthenticatedApp = () => {
         <Route path="/data-import" element={<DataImport />} />
         <Route path="/analysis" element={<Analysis />} />
         <Route path="/audit" element={<Audit />} />
+        <Route path="/data-quality" element={<DataQuality />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="/tests" element={<Tests />} />
       </Route>

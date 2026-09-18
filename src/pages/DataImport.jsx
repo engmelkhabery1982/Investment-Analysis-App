@@ -4,7 +4,7 @@ import { AlertTriangle, ArrowLeft, ArrowRight, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useStore } from '@/lib/hooks';
-import { applyImportPlan } from '@/lib/store';
+import { applyImportPlan, bulkUpsertCustomBenchmarks } from '@/lib/store';
 import { getImportHistory, addImportHistoryEntry, clearImportHistory } from '@/lib/importHistory';
 import { DEMO_TAG } from '@/lib/sampleData';
 import {
@@ -43,6 +43,8 @@ export default function DataImport() {
 
   const existingCounts = {
     cashflow: s.cashflows.length, gold: s.gold.length, fx: s.fx.length, cpi: s.cpi.length,
+    investment: s.investments.length,
+    custombenchmark: (s.customBenchmarks || []).reduce((n, b) => n + (b.data || []).length, 0),
   };
 
   // Demo data presence detection (never auto-delete; just warn).
@@ -62,9 +64,10 @@ export default function DataImport() {
     const ctx = type === 'cashflow'
       ? { investmentId, valuationDate: selectedInvestment?.valuationDate }
       : {};
-    const existing = type === 'cashflow'
-      ? s.cashflows.filter(c => c.investmentId === investmentId)
-      : s[IMPORT_TYPES[type].collectionKey];
+    let existing;
+    if (type === 'cashflow') existing = s.cashflows.filter(c => c.investmentId === investmentId);
+    else if (type === 'custombenchmark') existing = (s.customBenchmarks || []).flatMap(cb => (cb.data || []).map(r => ({ name: cb.name, date: r.date })));
+    else existing = s[IMPORT_TYPES[type].collectionKey];
     return prepareRows(type, source.dataRows, map, opts, existing, ctx);
   }, [source, type, map, dateFormat, numberFormat, s, investmentId, selectedInvestment]);
 
@@ -94,6 +97,7 @@ export default function DataImport() {
 
   function canConfirm() {
     if (type === 'cashflow' && !investmentId) return false;
+    if (ambiguousCount > 0 && dateFormat === 'auto') return false;
     if (summary.toInsert + summary.toReplace === 0) return false;
     return true;
   }
@@ -101,16 +105,27 @@ export default function DataImport() {
   function doImport() {
     const ops = buildOps(type, prepared, actions);
     if (!ops.length) { setError('Nothing to import.'); return; }
-    const res = applyImportPlan(type, ops);
+    let inserted, replaced, skipped, touchedBenchmarks = 0;
+    if (type === 'custombenchmark') {
+      const groups = {};
+      for (const op of ops) {
+        const r = op.record;
+        if (!groups[r.name]) groups[r.name] = { name: r.name, currency: r.currency, data: [] };
+        groups[r.name].data.push({ date: r.date, value: r.value, source: r.source });
+      }
+      touchedBenchmarks = bulkUpsertCustomBenchmarks(Object.values(groups));
+      inserted = ops.length; replaced = 0;
+    } else {
+      const res = applyImportPlan(type, ops);
+      inserted = res.inserted; replaced = res.replaced;
+    }
     const rejectedRows = prepared.filter(p => p.errors.length).map(p => ({ row: p.rowIndex + 2, reason: p.errors.join('; ') }));
-    const inserted = res.inserted;
-    const replaced = res.replaced;
     const rejected = rejectedRows.length;
-    const skipped = prepared.length - inserted - replaced - rejected;
+    skipped = prepared.length - inserted - replaced - rejected;
     const dupSkipped = prepared.filter((p, i) => (actions[i] === 'skip' && p.status === STATUS.DUPLICATE)).length;
     const resultObj = {
       inserted, replaced, skipped, duplicatesSkipped: dupSkipped, rejected,
-      warnings: summary.warnings, errors: summary.errors, rejectedRows,
+      warnings: summary.warnings, errors: summary.errors, rejectedRows, touchedBenchmarks,
     };
     setResult(resultObj);
     addImportHistoryEntry({ type, fileName: source.fileName, rowsReceived: prepared.length, inserted, replaced, skipped, rejected });
@@ -215,7 +230,7 @@ export default function DataImport() {
               <Check className="w-4 h-4 mr-2" />Confirm import ({summary.toInsert + summary.toReplace} records)
             </Button>
           </div>
-          {!canConfirm() && <p className="text-xs text-muted-foreground text-right">{type === 'cashflow' && !investmentId ? 'Select an investment to assign cash flows. ' : ''}Nothing will be imported until you confirm.</p>}
+          {!canConfirm() && <p className="text-xs text-muted-foreground text-right">{type === 'cashflow' && !investmentId ? 'Select an investment to assign cash flows. ' : ''}{ambiguousCount > 0 && dateFormat === 'auto' ? 'Resolve ambiguous dates (pick a date format) before confirming. ' : ''}Nothing will be imported until you confirm.</p>}
         </div>
       )}
 
