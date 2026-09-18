@@ -526,17 +526,49 @@ export function runTests() {
     const resolved = parseDateField('05/06/2024', 'mdy');
     check('Ambiguous date resolved once format chosen', resolved.iso === '2024-05-06' && !resolved.ambiguous, `got ${resolved.iso}`);
   }
-  // 52. Universal transaction import (direction, type, quantity, unit price, fees)
+  // 52. Universal transaction import — real headers through operation planning
   {
-    const row = ['2024-01-01', '50000', 'outflow', 'Purchase', 'EGP', '10', '5000', '25'];
-    const map = { date: 0, amount: 1, direction: 2, transactionType: 3, currency: 4, quantity: 5, unitPrice: 6, fees: 7 };
-    const rec = buildRecord('cashflow', row, map, { dateFormat: 'auto', numberFormat: 'auto', settings: {} });
+    const headers = ['Date', 'Amount', 'Direction', 'Transaction Type', 'Quantity', 'Unit Price', 'Fees'];
+    const row = ['2024-01-01', '50000', 'outflow', 'Purchase', '10', '5000', '25'];
+    const map = autoMapColumns(headers, 'cashflow');
+    check('Universal cashflow: real headers auto-map every field', map.date === 0 && map.amount === 1 && map.direction === 2 && map.transactionType === 3 && map.quantity === 4 && map.unitPrice === 5 && map.fees === 6, `got ${JSON.stringify(map)}`);
+    check('Universal cashflow: transaction type does not collide with legacy payment type', map.paymentType == null, `got ${JSON.stringify(map)}`);
+    const opts = { dateFormat: 'auto', numberFormat: 'auto', settings: { defaultCurrency: 'EGP' } };
+    const rec = buildRecord('cashflow', row, map, opts);
     check('Universal cashflow: direction mapped', rec.direction === 'outflow', `got ${rec.direction}`);
     check('Universal cashflow: transactionType mapped', rec.transactionType === 'Purchase', `got ${rec.transactionType}`);
     check('Universal cashflow: quantity/unitPrice/fees parsed', rec.quantity === 10 && rec.unitPrice === 5000 && rec.fees === 25, `got ${rec.quantity}/${rec.unitPrice}/${rec.fees}`);
     const v = validateImportRow('cashflow', rec, {});
     check('Universal cashflow: valid row has no errors', v.errors.length === 0, `got ${JSON.stringify(v.errors)}`);
     check('Universal cashflow: dupKey includes direction+type', dupKey('cashflow', rec, { investmentId: 'i1' }) === 'i1|2024-01-01|50000|outflow|Purchase|', `got ${dupKey('cashflow', rec, { investmentId: 'i1' })}`);
+    const prepared = prepareRows('cashflow', [row], map, opts, [], { investmentId: 'i1' });
+    const ops = buildOps('cashflow', prepared, ['insert']);
+    check('Universal cashflow: operation plan preserves every field', ops.length === 1 && ops[0].record.direction === 'outflow' && ops[0].record.transactionType === 'Purchase' && ops[0].record.quantity === 10 && ops[0].record.unitPrice === 5000 && ops[0].record.fees === 25, `got ${JSON.stringify(ops)}`);
+  }
+  // 52b. Legacy paymentType remains compatible and cannot steal transactionType
+  {
+    const legacyHeaders = ['Date', 'Amount', 'Payment Type'];
+    const legacyMap = autoMapColumns(legacyHeaders, 'cashflow');
+    const legacy = buildRecord('cashflow', ['2024-01-01', '1000', 'Installment'], legacyMap, { dateFormat: 'auto', numberFormat: 'auto', settings: { defaultCurrency: 'EGP' } });
+    check('Legacy paymentType header still auto-maps', legacyMap.paymentType === 2 && legacyMap.transactionType == null, `got ${JSON.stringify(legacyMap)}`);
+    check('Legacy paymentType populates transactionType', legacy.transactionType === 'Installment' && legacy.paymentType === 'Installment', `got ${legacy.transactionType}/${legacy.paymentType}`);
+
+    const bothMap = autoMapColumns(['Date', 'Amount', 'Transaction Type', 'Payment Type'], 'cashflow');
+    const both = buildRecord('cashflow', ['2024-01-01', '1000', 'Purchase', 'Installment'], bothMap, { dateFormat: 'auto', numberFormat: 'auto', settings: { defaultCurrency: 'EGP' } });
+    check('Explicit transactionType wins without alias collision', bothMap.transactionType === 2 && bothMap.paymentType === 3 && both.transactionType === 'Purchase', `got ${JSON.stringify(bothMap)}/${both.transactionType}`);
+  }
+  // 52c. Invalid universal transaction values are rejected before planning
+  {
+    const headers = ['Date', 'Amount', 'Direction', 'Transaction Type', 'Quantity', 'Unit Price', 'Fees'];
+    const map = autoMapColumns(headers, 'cashflow');
+    const rows = [
+      ['2024-01-01', '1000', 'outflow', 'Purchase', '1', '1000', '5'],
+      ['2024-01-02', '1000', 'outflow', 'Purchase', '-1', '1000', '5'],
+    ];
+    const prepared = prepareRows('cashflow', rows, map, { dateFormat: 'auto', numberFormat: 'auto', settings: { defaultCurrency: 'EGP' } }, [], { investmentId: 'i1' });
+    const ops = buildOps('cashflow', prepared, ['insert', 'skip-reject']);
+    check('Invalid universal data rejected (negative quantity)', prepared[1].status === STATUS.ERROR && prepared[1].errors.some(e => e.includes('Quantity')), `got ${prepared[1].status}/${JSON.stringify(prepared[1].errors)}`);
+    check('Invalid universal row remains atomic in operation planning', ops.length === 1 && ops[0].record.date === '2024-01-01', `got ${JSON.stringify(ops)}`);
   }
   // 53. Precision preservation through import
   {

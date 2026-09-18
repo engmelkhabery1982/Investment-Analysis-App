@@ -19,14 +19,19 @@ export const IMPORT_TYPES = {
     fields: [
       { key: 'date', label: 'Payment Date', required: true, aliases: ['date', 'payment date', 'payment_date', 'transaction date', 'transactiondate', 'pay date', 'paymentdate', 'paid date'] },
       { key: 'amount', label: 'Amount', required: true, numeric: true, aliases: ['amount', 'value', 'payment', 'paid amount', 'paidamount', 'payment amount', 'amount paid', 'cost', 'price'] },
+      { key: 'direction', label: 'Direction', aliases: ['direction', 'transaction direction', 'transaction_direction', 'cash flow direction', 'cashflow direction', 'flow direction'] },
+      { key: 'transactionType', label: 'Transaction Type', aliases: ['transaction type', 'transactiontype', 'transaction_type', 'cash flow type', 'cashflow type'] },
+      { key: 'quantity', label: 'Quantity', numeric: true, aliases: ['quantity', 'qty', 'units', 'number of units'] },
+      { key: 'unitPrice', label: 'Unit Price', numeric: true, aliases: ['unit price', 'unitprice', 'unit_price', 'price per unit'] },
+      { key: 'fees', label: 'Fees', numeric: true, aliases: ['fees', 'fee', 'transaction fees', 'transaction fee'] },
       { key: 'currency', label: 'Currency', aliases: ['currency', 'curr', 'ccy'] },
       { key: 'description', label: 'Description', aliases: ['description', 'desc', 'details', 'detail', 'narration'] },
       { key: 'installmentNumber', label: 'Installment Number', numeric: true, aliases: ['installmentnumber', 'installment number', 'installment', 'installment_number', 'installment no', 'installmentno', 'installment #', 'inst'] },
-      { key: 'paymentType', label: 'Payment Type', aliases: ['paymenttype', 'payment type', 'payment_type', 'type'] },
+      { key: 'paymentType', label: 'Payment Type', aliases: ['paymenttype', 'payment type', 'payment_type'], pattern: /^type$/ },
       { key: 'status', label: 'Status', aliases: ['status', 'state'] },
       { key: 'notes', label: 'Notes', aliases: ['notes', 'note', 'remarks', 'comment', 'comments'] },
     ],
-    defaults: (settings) => ({ currency: settings.defaultCurrency || 'EGP', paymentType: 'Installment', status: 'paid', quality: 'Imported' }),
+    defaults: (settings) => ({ currency: settings.defaultCurrency || 'EGP', direction: 'outflow', paymentType: 'Installment', status: 'paid', quality: 'Imported' }),
   },
   gold: {
     label: 'Gold Prices',
@@ -310,7 +315,7 @@ export function buildRecord(type, row, map, opts) {
       const amt = num(pick(row, map, 'amount'));
       const rawDir = (pick(row, map, 'direction') || d.direction).toLowerCase();
       const direction = DIRECTIONS.some(x => x.value === rawDir) ? rawDir : (rawDir === 'in' ? 'inflow' : rawDir === 'out' ? 'outflow' : d.direction);
-      const txType = pick(row, map, 'transactionType') || d.transactionType;
+      const txType = pick(row, map, 'transactionType') || pick(row, map, 'paymentType') || d.transactionType || d.paymentType;
       return {
         date: di.iso || '',
         amount: amt.value == null ? '' : amt.value,
