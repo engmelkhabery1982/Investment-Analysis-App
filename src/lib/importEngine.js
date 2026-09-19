@@ -399,11 +399,17 @@ export function buildRecord(type, row, map, opts) {
       const di = parseDateField(pick(row, map, 'valuationDate'), opts.dateFormat);
       const cdi = parseDateField(pick(row, map, 'contractDate'), opts.dateFormat);
       const val = num(pick(row, map, 'currentValuation'));
+      const rawType = pick(row, map, 'type') || d.type;
+      const type = Object.entries(INVESTMENT_TYPES).find(([key, meta]) =>
+        key.toLowerCase() === rawType.toLowerCase() || meta.label.toLowerCase() === rawType.toLowerCase()
+      )?.[0] || rawType;
+      const baseCurrency = pick(row, map, 'baseCurrency') || d.baseCurrency;
       return {
         name: pick(row, map, 'name') || '',
-        type: pick(row, map, 'type') || d.type,
+        type,
         status: pick(row, map, 'status') || d.status,
-        baseCurrency: pick(row, map, 'baseCurrency') || d.baseCurrency,
+        baseCurrency,
+        purchaseCurrency: baseCurrency,
         valuationDate: di.iso || '',
         currentValuation: val.value == null ? '' : val.value,
         contractDate: cdi.iso || '',

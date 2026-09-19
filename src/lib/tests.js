@@ -623,6 +623,9 @@ export function runTests() {
     const rec = buildRecord('investment', row, map, { dateFormat: 'auto', numberFormat: 'auto', settings: baseSettings });
     const v = validateImportRow('investment', rec, {});
     check('Investment import: name/type/status/valuation mapped', rec.name === 'Villa' && rec.type === 'real_estate' && rec.status === 'Active' && rec.valuationDate === '2025-01-01', `got ${JSON.stringify(rec)}`);
+    check('Investment import: currency supports base and legacy display fields', rec.baseCurrency === 'EGP' && rec.purchaseCurrency === 'EGP', `got ${rec.baseCurrency}/${rec.purchaseCurrency}`);
+    const labelRec = buildRecord('investment', ['Villa', 'Real Estate', 'Active', 'EGP', '2025-01-01', '2000000'], map, { dateFormat: 'auto', numberFormat: 'auto', settings: baseSettings });
+    check('Investment import: user-facing type label normalizes to canonical key', labelRec.type === 'real_estate' && validateImportRow('investment', labelRec, {}).errors.length === 0, `got ${labelRec.type}/${JSON.stringify(validateImportRow('investment', labelRec, {}).errors)}`);
     check('Investment import: valid row has no errors', v.errors.length === 0, `got ${JSON.stringify(v.errors)}`);
     check('Investment import: dupKey by name', dupKey('investment', rec) === 'inv|villa', `got ${dupKey('investment', rec)}`);
     const bad = buildRecord('investment', ['', 'real_estate', 'Active', 'EGP', '', ''], map, { dateFormat: 'auto', numberFormat: 'auto', settings: baseSettings });
