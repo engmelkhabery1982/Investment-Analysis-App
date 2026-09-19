@@ -8,6 +8,7 @@ import { rollupStatus, dateGapStatus } from './governance';
 import { analyzePortfolio } from './portfolio';
 import { applyScenario } from './scenarios';
 import { aggregateAudit, filterAudit, auditCSVRows } from './auditAggregator';
+import { toCSV } from './csv';
 import { buildDataQuality } from './dataQuality';
 import { buildBackup, validateBackup, BACKUP_VERSION } from './backup';
 import { investmentSummaryRows, portfolioSummaryRows } from './summaryExport';
@@ -489,6 +490,16 @@ export function runTests() {
     check('Audit CSV converts scaled Decimal values at serialization boundary',
       decimalCsv[5] === 21.875 && decimalCsv[12] === 105000 && decimalCsv[13] === 987.6543 && decimalCsv[15] === 3.5 && decimalCsv[16] === 282.18694 && decimalCsv[17] === 7.89,
       `got ${JSON.stringify(decimalCsv)}`);
+    const liveExportText = toCSV(auditCSVRows([{
+      investmentName: 'A', investmentType: 'real_estate', investmentStatus: 'Active', benchmark: 'Gold',
+      paymentDate: '2024-01-01', paymentAmount: 105000, direction: 'outflow', transactionType: 'Purchase',
+      requestedDate: '2024-01-01', appliedDate: '2024-01-01', policy: 'exact', side: 'Ask',
+      appliedPrice: 4800, units: D.D('21.875'), valuationDate: '2025-01-01',
+      valuationPrice: '', liquidationValue: '', result: D.D('21.875'), source: 'QA', warnings: '', formula: '',
+    }]));
+    check('Audit UI export path serializes economic Decimal values',
+      liveExportText.includes(',105000,') && liveExportText.includes(',21.875,') && !liveExportText.includes('218750000000') && !liveExportText.includes('1050000000000000'),
+      `got ${liveExportText}`);
   }
   // 48. Data Quality severity rollup + missing market data
   {
