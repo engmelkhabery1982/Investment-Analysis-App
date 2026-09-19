@@ -313,8 +313,16 @@ export function buildRecord(type, row, map, opts) {
     case 'cashflow': {
       const di = parseDateField(pick(row, map, 'date'), opts.dateFormat);
       const amt = num(pick(row, map, 'amount'));
-      const rawDir = (pick(row, map, 'direction') || d.direction).toLowerCase();
-      const direction = DIRECTIONS.some(x => x.value === rawDir) ? rawDir : (rawDir === 'in' ? 'inflow' : rawDir === 'out' ? 'outflow' : d.direction);
+      const rawDir = pick(row, map, 'direction').toLowerCase();
+      const direction = !rawDir
+        ? d.direction
+        : DIRECTIONS.some(x => x.value === rawDir)
+          ? rawDir
+          : rawDir === 'in'
+            ? 'inflow'
+            : rawDir === 'out'
+              ? 'outflow'
+              : rawDir;
       const txType = pick(row, map, 'transactionType') || pick(row, map, 'paymentType') || d.transactionType || d.paymentType;
       return {
         date: di.iso || '',
@@ -429,10 +437,11 @@ export function validateImportRow(type, rec, ctx = {}) {
     if (rec._dateInfo?.error) errors.push(rec._dateInfo.error);
     if (rec._amountInfo?.error) errors.push(`Amount: ${rec._amountInfo.error}`);
     if (rec.status !== 'refunded' && !(Number(rec.amount) > 0)) errors.push('Amount must be greater than 0 (unless refunded).');
-    if (!DIRECTIONS.some(x => x.value === rec.direction)) errors.push(`Direction must be "outflow" or "inflow" (got "${rec.direction}").`);
+    const validDirection = DIRECTIONS.some(x => x.value === rec.direction);
+    if (!validDirection) errors.push(`Direction must be "outflow" or "inflow" (got "${rec.direction}").`);
     if (!rec.currency) errors.push('Currency is required.');
     if (rec.transactionType && !TRANSACTION_TYPES.outflow.includes(rec.transactionType) && !TRANSACTION_TYPES.inflow.includes(rec.transactionType)) warnings.push(`Transaction type "${rec.transactionType}" is not a standard type.`);
-    if (rec.direction && rec.transactionType && !TRANSACTION_TYPES[rec.direction].includes(rec.transactionType)) warnings.push(`Transaction type "${rec.transactionType}" is unusual for direction "${rec.direction}".`);
+    if (validDirection && rec.transactionType && !TRANSACTION_TYPES[rec.direction].includes(rec.transactionType)) warnings.push(`Transaction type "${rec.transactionType}" is unusual for direction "${rec.direction}".`);
     if (rec.quantity !== '' && rec.quantity != null && !(Number(rec.quantity) >= 0)) errors.push('Quantity must be >= 0.');
     if (rec.unitPrice !== '' && rec.unitPrice != null && !(Number(rec.unitPrice) >= 0)) errors.push('Unit price must be >= 0.');
     if (rec.fees !== '' && rec.fees != null && !(Number(rec.fees) >= 0)) errors.push('Fees must be >= 0.');
@@ -510,7 +519,10 @@ export function prepareRows(type, dataRows, map, opts, existing, ctx = {}) {
   const batchKeys = new Map(); // key -> first rowIndex
   const out = [];
   dataRows.forEach((row, i) => {
-    const built = buildRecord(type, row, map, opts);
+    const record = buildRecord(type, row, map, opts);
+    const built = type === 'cashflow' && ctx.investmentId
+      ? { ...record, investmentId: ctx.investmentId }
+      : record;
     const { errors, warnings } = validateImportRow(type, built, ctx);
     const key = dupKey(type, built, ctx);
     let status = STATUS.NEW;

@@ -478,6 +478,17 @@ export function runTests() {
     check('Audit filter by ERROR returns only unresolved rows', errOnly.every(r => r.status === 'ERROR'), `got ${errOnly.length}`);
     const csv = auditCSVRows(rows);
     check('Audit CSV has header + rows', csv.length === rows.length + 1 && csv[0].length > 10, `got ${csv.length}`);
+    const decimalCsv = auditCSVRows([{
+      investmentName: 'A', investmentType: 'real_estate', investmentStatus: 'Active', benchmark: 'Gold',
+      paymentDate: '2024-01-01', paymentAmount: D.D('21.875'), direction: 'outflow', transactionType: 'Purchase',
+      requestedDate: '2024-01-01', appliedDate: '2024-01-01', policy: 'exact', side: 'Ask',
+      appliedPrice: 105000, units: D.D('987.6543'), valuationDate: '2025-01-01',
+      valuationPrice: D.D('3.50000'), liquidationValue: D.D('282.18694'), result: D.D('7.89000'),
+      source: 'QA', warnings: '', formula: '',
+    }])[1];
+    check('Audit CSV converts scaled Decimal values at serialization boundary',
+      decimalCsv[5] === 21.875 && decimalCsv[12] === 105000 && decimalCsv[13] === 987.6543 && decimalCsv[15] === 3.5 && decimalCsv[16] === 282.18694 && decimalCsv[17] === 7.89,
+      `got ${JSON.stringify(decimalCsv)}`);
   }
   // 48. Data Quality severity rollup + missing market data
   {
@@ -543,7 +554,9 @@ export function runTests() {
     check('Universal cashflow: dupKey includes direction+type', dupKey('cashflow', rec, { investmentId: 'i1' }) === 'i1|2024-01-01|50000|outflow|Purchase|', `got ${dupKey('cashflow', rec, { investmentId: 'i1' })}`);
     const prepared = prepareRows('cashflow', [row], map, opts, [], { investmentId: 'i1' });
     const ops = buildOps('cashflow', prepared, ['insert']);
-    check('Universal cashflow: operation plan preserves every field', ops.length === 1 && ops[0].record.direction === 'outflow' && ops[0].record.transactionType === 'Purchase' && ops[0].record.quantity === 10 && ops[0].record.unitPrice === 5000 && ops[0].record.fees === 25, `got ${JSON.stringify(ops)}`);
+    check('Universal cashflow: operation plan preserves every field', ops.length === 1 && ops[0].record.investmentId === 'i1' && ops[0].record.direction === 'outflow' && ops[0].record.transactionType === 'Purchase' && ops[0].record.quantity === 10 && ops[0].record.unitPrice === 5000 && ops[0].record.fees === 25, `got ${JSON.stringify(ops)}`);
+    const reimport = prepareRows('cashflow', [row], map, opts, [{ id: 'cf1', ...ops[0].record }], { investmentId: 'i1' });
+    check('Universal cashflow: selected investment persists and reimport conflicts', prepared[0].built.investmentId === 'i1' && reimport[0].status === STATUS.CONFLICT, `got ${prepared[0].built.investmentId}/${reimport[0].status}`);
   }
   // 52b. Legacy paymentType remains compatible and cannot steal transactionType
   {
@@ -569,6 +582,22 @@ export function runTests() {
     const ops = buildOps('cashflow', prepared, ['insert', 'skip-reject']);
     check('Invalid universal data rejected (negative quantity)', prepared[1].status === STATUS.ERROR && prepared[1].errors.some(e => e.includes('Quantity')), `got ${prepared[1].status}/${JSON.stringify(prepared[1].errors)}`);
     check('Invalid universal row remains atomic in operation planning', ops.length === 1 && ops[0].record.date === '2024-01-01', `got ${JSON.stringify(ops)}`);
+  }
+  // 52d. Direction defaults only when blank; explicit invalid values are rejected
+  {
+    const map = { date: 0, amount: 1, direction: 2, transactionType: 3 };
+    const opts = { dateFormat: 'auto', numberFormat: 'auto', settings: { defaultCurrency: 'EGP' } };
+    const rows = [
+      ['2024-01-01', '1000', '', 'Purchase'],
+      ['2024-01-01', '1000', 'outflow', 'Purchase'],
+      ['2024-01-01', '1000', 'inflow', 'Rent'],
+      ['2024-01-01', '1000', 'sideways', 'Purchase'],
+    ];
+    const prepared = prepareRows('cashflow', rows, map, opts, [], { investmentId: 'i1' });
+    check('Direction: blank defaults to outflow', prepared[0].built.direction === 'outflow' && prepared[0].status !== STATUS.ERROR, `got ${prepared[0].built.direction}/${prepared[0].status}`);
+    check('Direction: outflow remains valid', prepared[1].built.direction === 'outflow' && prepared[1].status !== STATUS.ERROR, `got ${prepared[1].built.direction}/${prepared[1].status}`);
+    check('Direction: inflow remains valid', prepared[2].built.direction === 'inflow' && prepared[2].status !== STATUS.ERROR, `got ${prepared[2].built.direction}/${prepared[2].status}`);
+    check('Direction: explicit invalid value is rejected', prepared[3].built.direction === 'sideways' && prepared[3].status === STATUS.ERROR && prepared[3].errors.some(e => e.includes('Direction')), `got ${prepared[3].built.direction}/${prepared[3].status}/${JSON.stringify(prepared[3].errors)}`);
   }
   // 53. Precision preservation through import
   {

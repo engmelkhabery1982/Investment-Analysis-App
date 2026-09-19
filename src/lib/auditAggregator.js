@@ -3,6 +3,8 @@
 // inputs (investment, transaction, market-data source). Does NOT recalculate
 // anything; it only flattens and enriches emitted audit records for tracing.
 
+import * as D from './decimal';
+
 function benchmarkLabel(calcType) {
   if (!calcType) return '';
   if (calcType === 'Gold' || calcType === 'Gold (total)') return 'Gold';
@@ -100,10 +102,11 @@ export function filterAudit(rows, { investmentId = 'all', benchmark = 'all', dat
 
 export function auditCSVRows(rows) {
   const headers = ['Investment', 'Type', 'Status', 'Benchmark', 'Payment date', 'Amount', 'Direction', 'Transaction type', 'Requested date', 'Applied date', 'Policy', 'Side', 'Applied price', 'Units', 'Valuation date', 'Valuation price', 'Liquidation value', 'Result', 'Source', 'Warnings', 'Formula'];
+  const decimalValue = value => value === '' || value == null ? '' : D.toNumber(value);
   return [headers, ...rows.map(r => [
     r.investmentName, r.investmentType, r.investmentStatus, r.benchmark,
-    r.paymentDate, r.paymentAmount, r.direction, r.transactionType,
-    r.requestedDate, r.appliedDate, r.policy, r.side, r.appliedPrice, r.units,
-    r.valuationDate, r.valuationPrice, r.liquidationValue, r.result, r.source, r.warnings, r.formula,
+    r.paymentDate, decimalValue(r.paymentAmount), r.direction, r.transactionType,
+    r.requestedDate, r.appliedDate, r.policy, r.side, decimalValue(r.appliedPrice), decimalValue(r.units),
+    r.valuationDate, decimalValue(r.valuationPrice), decimalValue(r.liquidationValue), decimalValue(r.result), r.source, r.warnings, r.formula,
   ])];
 }
