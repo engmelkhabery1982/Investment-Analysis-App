@@ -1,22 +1,17 @@
 import { sampleState, emptyState, defaultSettings } from './sampleData';
 import { buildBackup, validateBackup } from './backup';
+import { createIndexedDbRepository } from '../repository/indexedDbRepository';
 
-const KEY = 'pia.state.v1';
 const listeners = new Set();
-let state = loadState();
-// Persist the initial seed so data survives refresh even before any edit.
-try { if (!localStorage.getItem(KEY)) localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) { /* ignore */ }
-
-function loadState() {
-  try {
-    const raw = localStorage.getItem(KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      return normalize(parsed);
-    }
-  } catch (e) { /* ignore */ }
-  return sampleState();
-}
+const statusListeners = new Set();
+const repository = createIndexedDbRepository();
+let state = normalize(sampleState());
+let ready = false;
+let initializationError = null;
+let persistenceError = null;
+let mutationRevision = 0;
+let persistenceQueue = Promise.resolve();
+let statusSnapshot = { ready, initializationError, persistenceError };
 
 function migrateInvestment(i) {
   return {
@@ -46,21 +41,67 @@ function normalize(s) {
   };
 }
 
-function persist() {
-  try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) { /* ignore */ }
-}
 function emit() { listeners.forEach(l => l()); }
+function emitStatus() {
+  statusSnapshot = { ready, initializationError, persistenceError };
+  statusListeners.forEach(l => l());
+}
+
+async function bootstrap() {
+  try {
+    await repository.init();
+    const storage = typeof localStorage === 'undefined' ? { getItem: () => null } : localStorage;
+    const migration = await repository.migrateFromV1LocalStorage(storage, normalize(sampleState()));
+    if (migration.reason === 'invalid-v1-data' || migration.reason === 'verification-failed') {
+      throw new Error(`V1 storage migration failed: ${migration.reason}`);
+    }
+    state = normalize(await repository.loadState());
+    ready = true;
+    emit();
+    emitStatus();
+  } catch (error) {
+    initializationError = error;
+    emitStatus();
+  }
+}
+
+const readyPromise = bootstrap();
 
 export function subscribe(listener) {
   listeners.add(listener);
   return () => listeners.delete(listener);
 }
 export function getState() { return state; }
+export function subscribeStoreStatus(listener) {
+  statusListeners.add(listener);
+  return () => statusListeners.delete(listener);
+}
+export function getStoreStatus() { return statusSnapshot; }
+export function whenStoreReady() { return readyPromise; }
+export function whenPersistenceIdle() { return persistenceQueue; }
+
+function queuePersistence(nextState, previousState, revision) {
+  const snapshot = typeof structuredClone === 'function'
+    ? structuredClone(nextState)
+    : JSON.parse(JSON.stringify(nextState));
+  persistenceQueue = persistenceQueue
+    .then(() => repository.replaceState(snapshot))
+    .catch(error => {
+      persistenceError = error;
+      if (revision === mutationRevision) {
+        state = previousState;
+        emit();
+      }
+      emitStatus();
+    });
+}
 
 function update(updater) {
+  const previousState = state;
   state = normalize(updater(state));
-  persist();
+  const revision = ++mutationRevision;
   emit();
+  queuePersistence(state, previousState, revision);
 }
 
 function uid(prefix = 'id') {

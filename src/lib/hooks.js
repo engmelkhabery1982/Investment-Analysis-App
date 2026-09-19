@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { useSyncExternalStore } from 'react';
-import { subscribe, getState } from './store';
+import { subscribe, getState, subscribeStoreStatus, getStoreStatus } from './store';
 import { analyzeInvestment } from './performance';
 import { analyzePortfolio } from './portfolio';
 import { buildDataQuality } from './dataQuality';
@@ -8,6 +8,10 @@ import { aggregateAudit } from './auditAggregator';
 
 export function useStore() {
   return useSyncExternalStore(subscribe, getState, getState);
+}
+
+export function useStoreStatus() {
+  return useSyncExternalStore(subscribeStoreStatus, getStoreStatus, getStoreStatus);
 }
 
 export function useInvestments() {

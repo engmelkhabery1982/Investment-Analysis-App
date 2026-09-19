@@ -15,9 +15,18 @@ import Audit from '@/pages/Audit';
 import DataQuality from '@/pages/DataQuality';
 import Settings from '@/pages/Settings';
 import Tests from '@/pages/Tests';
+import { useStoreStatus } from '@/lib/hooks';
 // Add page imports here
 
 function App() {
+  const { ready, initializationError, persistenceError } = useStoreStatus();
+  if (initializationError) {
+    return <div className="p-6 text-destructive">Storage initialization failed. Your V1 data was left untouched.</div>;
+  }
+  if (!ready) return <div className="p-6 text-muted-foreground">Loading local data…</div>;
+  if (persistenceError) {
+    return <div className="p-6 text-destructive">Storage update failed. The unsaved change was rolled back.</div>;
+  }
   return (
     <Router>
       <ScrollToTop />
