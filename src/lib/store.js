@@ -86,6 +86,12 @@ function queuePersistence(nextState, previousState, revision) {
     : JSON.parse(JSON.stringify(nextState));
   persistenceQueue = persistenceQueue
     .then(() => repository.replaceState(snapshot))
+    .then(() => {
+      if (persistenceError !== null) {
+        persistenceError = null;
+        emitStatus();
+      }
+    })
     .catch(error => {
       persistenceError = error;
       if (revision === mutationRevision) {

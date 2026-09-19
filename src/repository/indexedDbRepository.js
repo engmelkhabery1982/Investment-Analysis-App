@@ -27,9 +27,20 @@ function isRecordArray(value) {
 export function isValidV1State(raw) {
   if (!isObject(raw)) return false;
   for (const store of COLLECTION_STORES) {
-    if (!isRecordArray(raw[store])) return false;
+    if (raw[store] !== undefined && !isRecordArray(raw[store])) return false;
   }
   return raw.settings === undefined || isObject(raw.settings);
+}
+
+function normalizeV1State(raw) {
+  return {
+    ...Object.fromEntries(COLLECTION_STORES.map(store => [store, raw[store] || []])),
+    settings: raw.settings || {},
+  };
+}
+
+function isValidCompleteState(raw) {
+  return isValidV1State(raw) && COLLECTION_STORES.every(store => isRecordArray(raw[store]));
 }
 
 function isStateEmpty(state) {
@@ -107,7 +118,7 @@ class IndexedDbRepository {
   }
 
   async replaceState(state) {
-    if (!isValidV1State(state)) throw new Error('Invalid state replacement payload.');
+    if (!isValidCompleteState(state)) throw new Error('Invalid state replacement payload.');
     await writeStateTransaction(this.requireDb(), state);
   }
 
@@ -242,9 +253,10 @@ class IndexedDbRepository {
     if (raw !== null && raw !== undefined) {
       try { source = JSON.parse(raw); } catch { return { migrated: false, reason: 'invalid-v1-data' }; }
       if (!isValidV1State(source)) return { migrated: false, reason: 'invalid-v1-data' };
+      source = normalizeV1State(source);
       reason = 'migrated';
     } else if (fallbackState) {
-      if (!isValidV1State(fallbackState)) throw new Error('Invalid fallback state.');
+      if (!isValidCompleteState(fallbackState)) throw new Error('Invalid fallback state.');
       source = fallbackState;
     }
     if (!source) return { migrated: false, reason };

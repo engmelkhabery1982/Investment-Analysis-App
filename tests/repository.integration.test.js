@@ -236,3 +236,42 @@ test('21 state round-trip preserves unknown user fields and precision', async ()
     assert.deepEqual(loaded.scenarios[0].arbitrary, { nested: true });
   });
 });
+
+test('22 sparse legacy V1 state migrates with missing newer collections and settings', async () => {
+  await withRepo(async repo => {
+    const full = sampleState();
+    const legacy = {
+      investments: full.investments,
+      cashflows: full.cashflows,
+      gold: full.gold,
+      fx: full.fx,
+      cpi: full.cpi,
+    };
+    const result = await repo.migrateFromV1LocalStorage(storage(JSON.stringify(legacy)), sampleState());
+    assert.equal(result.migrated, true);
+    assert.deepEqual(await repo.loadState(), { ...legacy, customBenchmarks: [], scenarios: [], settings: {} });
+  });
+});
+
+test('23 malformed present legacy collection is rejected atomically', async () => {
+  await withRepo(async repo => {
+    const legacy = { investments: sampleState().investments, customBenchmarks: {} };
+    const result = await repo.migrateFromV1LocalStorage(storage(JSON.stringify(legacy)), sampleState());
+    assert.equal(result.reason, 'invalid-v1-data');
+    assert.deepEqual(await repo.loadState(), {
+      investments: [], cashflows: [], gold: [], fx: [], cpi: [], customBenchmarks: [], scenarios: [], settings: {},
+    });
+  });
+});
+
+test('24 sparse legacy migration remains idempotent', async () => {
+  await withRepo(async repo => {
+    const legacy = { investments: sampleState().investments };
+    const source = storage(JSON.stringify(legacy));
+    await repo.migrateFromV1LocalStorage(source, sampleState());
+    const second = await repo.migrateFromV1LocalStorage(source, sampleState());
+    assert.equal(second.reason, 'already-migrated');
+    assert.deepEqual((await repo.listInvestments()).map(row => row.id), ['inv1']);
+    assert.deepEqual(await repo.listCustomBenchmarks(), []);
+  });
+});
